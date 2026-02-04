@@ -5,9 +5,11 @@ import (
 	"io"
 	"net/mail"
 	"os"
+	"strings"
 	"unicode/utf8"
 
-	"github.com/DusanKasan/parsemail"
+	"emly/backend/utils"
+
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 )
@@ -19,13 +21,15 @@ type EmailAttachment struct {
 }
 
 type EmailData struct {
-	From        string            `json:"from"`
-	To          []string          `json:"to"`
-	Cc          []string          `json:"cc"`
-	Bcc         []string          `json:"bcc"`
-	Subject     string            `json:"subject"`
-	Body        string            `json:"body"`
-	Attachments []EmailAttachment `json:"attachments"`
+	From          string            `json:"from"`
+	To            []string          `json:"to"`
+	Cc            []string          `json:"cc"`
+	Bcc           []string          `json:"bcc"`
+	Subject       string            `json:"subject"`
+	Body          string            `json:"body"`
+	Attachments   []EmailAttachment `json:"attachments"`
+	IsPec         bool              `json:"isPec"`
+	HasInnerEmail bool              `json:"hasInnerEmail"`
 }
 
 func ReadEmlFile(filePath string) (*EmailData, error) {
@@ -35,7 +39,7 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	}
 	defer file.Close()
 
-	email, err := parsemail.Parse(file)
+	email, err := utils.Parse(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
 	}
@@ -55,19 +59,36 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		body = email.TextBody
 	}
 
-	// Process attachments
+	// Process attachments and detect PEC
 	var attachments []EmailAttachment
+	var hasDatiCert, hasSmime, hasInnerEmail bool
+
 	for _, att := range email.Attachments {
 		data, err := io.ReadAll(att.Data)
 		if err != nil {
 			continue // Handle error or skip? Skipping for now.
 		}
+
+		// PEC Detection Logic
+		filenameLower := strings.ToLower(att.Filename)
+		if filenameLower == "daticert.xml" {
+			hasDatiCert = true
+		}
+		if filenameLower == "smime.p7s" {
+			hasSmime = true
+		}
+		if strings.HasSuffix(filenameLower, ".eml") {
+			hasInnerEmail = true
+		}
+
 		attachments = append(attachments, EmailAttachment{
 			Filename:    att.Filename,
 			ContentType: att.ContentType,
 			Data:        data,
 		})
 	}
+
+	isPec := hasDatiCert && hasSmime
 
 	// Format From
 	var from string
@@ -76,13 +97,15 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	}
 
 	return &EmailData{
-		From:        convertToUTF8(from),
-		To:          formatAddress(email.To),
-		Cc:          formatAddress(email.Cc),
-		Bcc:         formatAddress(email.Bcc),
-		Subject:     convertToUTF8(email.Subject),
-		Body:        convertToUTF8(body),
-		Attachments: attachments,
+		From:          convertToUTF8(from),
+		To:            formatAddress(email.To),
+		Cc:            formatAddress(email.Cc),
+		Bcc:           formatAddress(email.Bcc),
+		Subject:       convertToUTF8(email.Subject),
+		Body:          convertToUTF8(body),
+		Attachments:   attachments,
+		IsPec:         isPec,
+		HasInnerEmail: hasInnerEmail,
 	}, nil
 }
 

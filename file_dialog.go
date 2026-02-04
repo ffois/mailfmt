@@ -6,14 +6,18 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-var EMLDialogOptions = runtime.OpenDialogOptions{
-	Title:           "Select EML file",
-	Filters:         []runtime.FileFilter{{DisplayName: "EML Files (*.eml)", Pattern: "*.eml"}},
+var EmailDialogOptions = runtime.OpenDialogOptions{
+	Title: "Select Email file",
+	Filters: []runtime.FileFilter{
+		{DisplayName: "Email Files (*.eml;*.msg)", Pattern: "*.eml;*.msg"},
+		{DisplayName: "EML Files (*.eml)", Pattern: "*.eml"},
+		{DisplayName: "MSG Files (*.msg)", Pattern: "*.msg"},
+	},
 	ShowHiddenFiles: false,
 }
 
 func ShowFileDialog(ctx context.Context) (string, error) {
-	filePath, err := runtime.OpenFileDialog(ctx, EMLDialogOptions)
+	filePath, err := runtime.OpenFileDialog(ctx, EmailDialogOptions)
 	if err != nil {
 		return "", err
 	}
