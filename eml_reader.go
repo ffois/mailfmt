@@ -2,6 +2,7 @@ package internal
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/mail"
@@ -58,10 +59,68 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		body = email.TextBody
 	}
 
-	// Process attachments and detect PEC
+	// Process attachments list and PEC detection
 	var attachments []EmailAttachment
 	var hasDatiCert, hasSmime, hasInnerEmail bool
 
+	// Process embedded files (inline images) -> add to body AND add as attachments
+	for _, ef := range email.EmbeddedFiles {
+		data, err := io.ReadAll(ef.Data)
+		if err != nil {
+			continue
+		}
+
+		// Convert to base64
+		b64 := base64.StdEncoding.EncodeToString(data)
+		mimeType := ef.ContentType
+		if parts := strings.Split(mimeType, ";"); len(parts) > 0 {
+			mimeType = strings.TrimSpace(parts[0])
+		}
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+
+		// Create data URI
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+
+		// Replace cid:reference with data URI in HTML body
+		// ef.CID is already trimmed of <>
+		target := "cid:" + ef.CID
+		body = strings.ReplaceAll(body, target, dataURI)
+
+		// ALSO ADD AS ATTACHMENTS for the viewer
+		filename := ef.CID
+		if filename == "" {
+			filename = "embedded_image"
+		}
+		// If no extension, try to infer from mimetype
+		if !strings.Contains(filename, ".") {
+			ext := "dat"
+			switch mimeType {
+			case "image/jpeg":
+				ext = "jpg"
+			case "image/png":
+				ext = "png"
+			case "image/gif":
+				ext = "gif"
+			case "application/pdf":
+				ext = "pdf"
+			default:
+				if parts := strings.Split(mimeType, "/"); len(parts) > 1 {
+					ext = parts[1]
+				}
+			}
+			filename = fmt.Sprintf("%s.%s", filename, ext)
+		}
+
+		attachments = append(attachments, EmailAttachment{
+			Filename:    filename,
+			ContentType: mimeType,
+			Data:        data,
+		})
+	}
+
+	// Process standard attachments
 	for _, att := range email.Attachments {
 		data, err := io.ReadAll(att.Data)
 		if err != nil {
