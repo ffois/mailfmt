@@ -146,6 +146,9 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		})
 	}
 
+	// Expand any TNEF (winmail.dat) attachments into their contained files.
+	attachments = expandTNEFAttachments(attachments)
+
 	isPec := hasDatiCert && hasSmime
 
 	// Format From
@@ -266,6 +269,9 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 			Data:        data,
 		})
 	}
+
+	// Expand any TNEF (winmail.dat) attachments into their contained files.
+	attachments = expandTNEFAttachments(attachments)
 
 	isPec := hasDatiCert && hasSmime
 
