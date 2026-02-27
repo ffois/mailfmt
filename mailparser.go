@@ -146,7 +146,7 @@ func parseMultipartRelated(msg io.Reader, boundary string) (textBody, htmlBody s
 			textBody += tb
 			embeddedFiles = append(embeddedFiles, ef...)
 		default:
-			if isEmbeddedFile(part) {
+			if isEmbeddedFile(part) || part.Header.Get("Content-Id") != "" {
 				ef, err := decodeEmbeddedFile(part)
 				if err != nil {
 					return textBody, htmlBody, embeddedFiles, err
@@ -263,6 +263,20 @@ func parseMultipartMixed(msg io.Reader, boundary string) (textBody, htmlBody str
 			}
 
 			htmlBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+		} else if contentType == "message/rfc822" {
+			at, err := decodeRfc822Attachment(part)
+			if err != nil {
+				return textBody, htmlBody, attachments, embeddedFiles, err
+			}
+
+			attachments = append(attachments, at)
+		} else if part.Header.Get("Content-Id") != "" {
+			ef, err := decodeEmbeddedFile(part)
+			if err != nil {
+				return textBody, htmlBody, attachments, embeddedFiles, err
+			}
+
+			embeddedFiles = append(embeddedFiles, ef)
 		} else if isAttachment(part) {
 			at, err := decodeAttachment(part)
 			if err != nil {
@@ -347,6 +361,30 @@ func decodeAttachment(part *multipart.Part) (at Attachment, err error) {
 	at.Filename = filename
 	at.Data = decoded
 	at.ContentType = strings.Split(part.Header.Get("Content-Type"), ";")[0]
+
+	return
+}
+
+func decodeRfc822Attachment(part *multipart.Part) (at Attachment, err error) {
+	filename := decodeMimeSentence(part.FileName())
+	if filename == "" {
+		filename = decodeMimeSentence(part.Header.Get("Content-Description"))
+	}
+	if filename == "" {
+		filename = "message.eml"
+	}
+	if !strings.HasSuffix(strings.ToLower(filename), ".eml") {
+		filename += ".eml"
+	}
+
+	decoded, err := decodeContent(part, part.Header.Get("Content-Transfer-Encoding"))
+	if err != nil {
+		return
+	}
+
+	at.Filename = filename
+	at.Data = decoded
+	at.ContentType = "message/rfc822"
 
 	return
 }

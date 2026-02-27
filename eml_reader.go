@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/mail"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -83,10 +84,10 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		// Create data URI
 		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
 
-		// Replace cid:reference with data URI in HTML body
-		// ef.CID is already trimmed of <>
-		target := "cid:" + ef.CID
-		body = strings.ReplaceAll(body, target, dataURI)
+		// Replace cid:reference with data URI in HTML body (case-insensitive).
+		// ef.CID is already trimmed of <>.
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
+		body = re.ReplaceAllLiteralString(body, dataURI)
 
 		// ALSO ADD AS ATTACHMENTS for the viewer
 		filename := ef.CID
