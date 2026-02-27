@@ -47,11 +47,15 @@ func Parse(r io.Reader) (email Email, err error) {
 	case contentTypeMultipartRelated:
 		email.TextBody, email.HTMLBody, email.EmbeddedFiles, err = parseMultipartRelated(msg.Body, params["boundary"])
 	case contentTypeTextPlain:
-		message, _ := io.ReadAll(msg.Body)
-		email.TextBody = strings.TrimSuffix(string(message[:]), "\n")
+		email.TextBody, err = readDecodedText(msg.Body, msg.Header.Get("Content-Transfer-Encoding"))
+		if err != nil {
+			return
+		}
 	case contentTypeTextHtml:
-		message, _ := io.ReadAll(msg.Body)
-		email.HTMLBody = strings.TrimSuffix(string(message[:]), "\n")
+		email.HTMLBody, err = readDecodedText(msg.Body, msg.Header.Get("Content-Transfer-Encoding"))
+		if err != nil {
+			return
+		}
 	default:
 		email.Content, err = decodeContent(msg.Body, msg.Header.Get("Content-Transfer-Encoding"))
 	}
@@ -123,19 +127,17 @@ func parseMultipartRelated(msg io.Reader, boundary string) (textBody, htmlBody s
 
 		switch contentType {
 		case contentTypeTextPlain:
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, embeddedFiles, err
 			}
-
-			textBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			textBody += s
 		case contentTypeTextHtml:
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, embeddedFiles, err
 			}
-
-			htmlBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			htmlBody += s
 		case contentTypeMultipartAlternative:
 			tb, hb, ef, err := parseMultipartAlternative(part, params["boundary"])
 			if err != nil {
@@ -180,19 +182,17 @@ func parseMultipartAlternative(msg io.Reader, boundary string) (textBody, htmlBo
 
 		switch contentType {
 		case contentTypeTextPlain:
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, embeddedFiles, err
 			}
-
-			textBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			textBody += s
 		case contentTypeTextHtml:
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, embeddedFiles, err
 			}
-
-			htmlBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			htmlBody += s
 		case contentTypeMultipartRelated:
 			tb, hb, ef, err := parseMultipartRelated(part, params["boundary"])
 			if err != nil {
@@ -250,19 +250,17 @@ func parseMultipartMixed(msg io.Reader, boundary string) (textBody, htmlBody str
 				return textBody, htmlBody, attachments, embeddedFiles, err
 			}
 		} else if contentType == contentTypeTextPlain {
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, attachments, embeddedFiles, err
 			}
-
-			textBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			textBody += s
 		} else if contentType == contentTypeTextHtml {
-			ppContent, err := io.ReadAll(part)
+			s, err := readDecodedText(part, part.Header.Get("Content-Transfer-Encoding"))
 			if err != nil {
 				return textBody, htmlBody, attachments, embeddedFiles, err
 			}
-
-			htmlBody += strings.TrimSuffix(string(ppContent[:]), "\n")
+			htmlBody += s
 		} else if contentType == "message/rfc822" {
 			at, err := decodeRfc822Attachment(part)
 			if err != nil {
@@ -387,6 +385,20 @@ func decodeRfc822Attachment(part *multipart.Part) (at Attachment, err error) {
 	at.ContentType = "message/rfc822"
 
 	return
+}
+
+// readDecodedText reads a MIME part (or top-level body) applying its
+// Content-Transfer-Encoding and returns the decoded string.
+func readDecodedText(r io.Reader, cte string) (string, error) {
+	decoded, err := decodeContent(r, cte)
+	if err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(decoded)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(b), "\n"), nil
 }
 
 func decodeContent(content io.Reader, encoding string) (io.Reader, error) {
