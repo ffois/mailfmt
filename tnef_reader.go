@@ -186,7 +186,7 @@ func findEmbeddedTNEFStreamsFromRaw(tnefData []byte) [][]byte {
 		if level == 0x02 && attrID == 0x00069005 && attrLen > 100 {
 			mapiData := tnefData[dataStart : dataStart+attrLen]
 			embedded := extractPRAttachDataObjFromMAPI(mapiData)
-			if embedded != nil && len(embedded) > 22 {
+			if len(embedded) > 22 {
 				// Skip the 16-byte IID_IMessage GUID
 				afterGuid := embedded[16:]
 				if isTNEFData(afterGuid) {
