@@ -402,7 +402,7 @@ func readDecodedText(r io.Reader, cte string) (string, error) {
 }
 
 func decodeContent(content io.Reader, encoding string) (io.Reader, error) {
-	switch encoding {
+	switch strings.ToLower(encoding) {
 	case "base64":
 		decoded := base64.NewDecoder(base64.StdEncoding, content)
 		b, err := io.ReadAll(decoded)
