@@ -13,6 +13,7 @@ import (
 	"mime/quotedprintable"
 	"net/textproto"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 )
@@ -43,6 +44,7 @@ const (
 	pidTagAttachLongFilename   = 0x3707
 	pidTagAttachData           = 0x3701
 	pidTagAttachMimeTag        = 0x370E
+	pidTagAttachContentId      = 0x3712
 	propTypeString8            = 0x001E
 	propTypeString             = 0x001F
 	propTypeBinary             = 0x0102
@@ -463,9 +465,12 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 	email.IsPec = strings.Contains(strings.ToLower(msgClass), "smime") ||
 		strings.Contains(strings.ToLower(email.Subject), "posta certificata")
 
+	// cid -> data URI map for inline image substitution
+	cidToDataURI := make(map[string]string)
+
 	for _, child := range cfb.root.Children {
 		if strings.HasPrefix(child.Name, "__attach_version1.0_#") {
-			att := parseAttachment(cfb, child)
+			att, cid := parseAttachment(cfb, child)
 			if att != nil {
 				if strings.HasPrefix(att.ContentType, "multipart/") {
 					innerAtts := extractMIMEAttachments(att.Data)
@@ -474,10 +479,27 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 						email.Attachments = append(email.Attachments, innerAtts...)
 					}
 				} else {
+					if cid != "" {
+						mimeType := att.ContentType
+						if parts := strings.Split(mimeType, ";"); len(parts) > 0 {
+							mimeType = strings.TrimSpace(parts[0])
+						}
+						if mimeType == "" {
+							mimeType = "application/octet-stream"
+						}
+						b64 := base64.StdEncoding.EncodeToString(att.Data)
+						cidToDataURI[cid] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+					}
 					email.Attachments = append(email.Attachments, *att)
 				}
 			}
 		}
+	}
+
+	// Replace cid: references in the HTML body with data URIs
+	for cid, dataURI := range cidToDataURI {
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+cid))
+		email.Body = re.ReplaceAllLiteralString(email.Body, dataURI)
 	}
 
 	return email, nil
@@ -556,8 +578,9 @@ func splitRecipients(s string) []string {
 	return result
 }
 
-func parseAttachment(cfb *cfbReader, node *dirNode) *EmailAttachment {
+func parseAttachment(cfb *cfbReader, node *dirNode) (*EmailAttachment, string) {
 	att := &EmailAttachment{}
+	var contentId string
 
 	for _, child := range node.Children {
 		if child.Entry.ObjectType != 2 || !strings.HasPrefix(child.Name, "__substg1.0_") {
@@ -582,13 +605,15 @@ func parseAttachment(cfb *cfbReader, node *dirNode) *EmailAttachment {
 			att.ContentType = decodePropertyString(data, propType)
 		case pidTagAttachData:
 			att.Data = data
+		case pidTagAttachContentId:
+			contentId = strings.Trim(decodePropertyString(data, propType), "<>")
 		}
 	}
 
 	if att.Filename == "" && att.Data == nil {
-		return nil
+		return nil, ""
 	}
-	return att
+	return att, contentId
 }
 
 func decodePropertyString(data []byte, propType uint16) string {

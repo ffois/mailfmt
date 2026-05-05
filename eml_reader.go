@@ -242,9 +242,57 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 		body = innerEmail.TextBody
 	}
 
-	// Process attachments of the inner email
+	// Process embedded files (inline images) -> replace cid: references in body
 	var attachments []EmailAttachment
 	var hasDatiCert, hasSmime, hasInnerPecEmail bool
+
+	for _, ef := range innerEmail.EmbeddedFiles {
+		data, err := io.ReadAll(ef.Data)
+		if err != nil {
+			continue
+		}
+
+		b64 := base64.StdEncoding.EncodeToString(data)
+		mimeType := ef.ContentType
+		if parts := strings.Split(mimeType, ";"); len(parts) > 0 {
+			mimeType = strings.TrimSpace(parts[0])
+		}
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+
+		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
+		body = re.ReplaceAllLiteralString(body, dataURI)
+
+		filename := ef.CID
+		if filename == "" {
+			filename = "embedded_image"
+		}
+		if !strings.Contains(filename, ".") {
+			ext := "dat"
+			switch mimeType {
+			case "image/jpeg":
+				ext = "jpg"
+			case "image/png":
+				ext = "png"
+			case "image/gif":
+				ext = "gif"
+			case "application/pdf":
+				ext = "pdf"
+			default:
+				if parts := strings.Split(mimeType, "/"); len(parts) > 1 {
+					ext = parts[1]
+				}
+			}
+			filename = fmt.Sprintf("%s.%s", filename, ext)
+		}
+		attachments = append(attachments, EmailAttachment{
+			Filename:    filename,
+			ContentType: mimeType,
+			Data:        data,
+		})
+	}
 
 	for _, att := range innerEmail.Attachments {
 		data, err := io.ReadAll(att.Data)
