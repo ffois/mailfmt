@@ -31,6 +31,7 @@ type EmailData struct {
 	Attachments   []EmailAttachment `json:"attachments"`
 	IsPec         bool              `json:"isPec"`
 	HasInnerEmail bool              `json:"hasInnerEmail"`
+	Date          string            `json:"date"`
 }
 
 func ReadEmlFile(filePath string) (*EmailData, error) {
@@ -340,5 +341,6 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 		Attachments:   attachments,
 		IsPec:         isPec,
 		HasInnerEmail: hasInnerPecEmail,
+		Date:          innerEmail.Header.Get("Date"),
 	}, nil
 }
