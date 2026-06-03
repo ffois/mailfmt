@@ -16,6 +16,10 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 )
 
 const (
@@ -525,14 +529,14 @@ func getPropString(props map[uint32][]byte, propID uint32) string {
 		return decodeUTF16(data)
 	}
 	if data, ok := props[(propID<<16)|propTypeString8]; ok {
-		return strings.TrimRight(string(data), "\x00")
+		return decodeString8(data)
 	}
 	return ""
 }
 
 func getPropBinary(props map[uint32][]byte, propID uint32) string {
 	if data, ok := props[(propID<<16)|propTypeBinary]; ok {
-		return string(data)
+		return decodeWindows1252(string(data))
 	}
 	return ""
 }
@@ -547,6 +551,21 @@ func textToHTML(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "<br>")
 	text = strings.ReplaceAll(text, "\n", "<br>")
 	return text
+}
+
+func decodeWindows1252(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	decoded, _, err := transform.String(charmap.Windows1252.NewDecoder(), s)
+	if err != nil {
+		return s
+	}
+	return decoded
+}
+
+func decodeString8(data []byte) string {
+	return decodeWindows1252(strings.TrimRight(string(data), "\x00"))
 }
 
 func decodeUTF16(data []byte) string {
@@ -621,7 +640,7 @@ func decodePropertyString(data []byte, propType uint16) string {
 	case propTypeString:
 		return decodeUTF16(data)
 	case propTypeString8:
-		return strings.TrimRight(string(data), "\x00")
+		return decodeString8(data)
 	}
 	return ""
 }
