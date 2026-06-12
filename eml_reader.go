@@ -91,29 +91,7 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		body = re.ReplaceAllLiteralString(body, dataURI)
 
 		// ALSO ADD AS ATTACHMENTS for the viewer
-		filename := ef.CID
-		if filename == "" {
-			filename = "embedded_image"
-		}
-		// If no extension, try to infer from mimetype
-		if !strings.Contains(filename, ".") {
-			ext := "dat"
-			switch mimeType {
-			case "image/jpeg":
-				ext = "jpg"
-			case "image/png":
-				ext = "png"
-			case "image/gif":
-				ext = "gif"
-			case "application/pdf":
-				ext = "pdf"
-			default:
-				if parts := strings.Split(mimeType, "/"); len(parts) > 1 {
-					ext = parts[1]
-				}
-			}
-			filename = fmt.Sprintf("%s.%s", filename, ext)
-		}
+		filename := embeddedFilename(ef, mimeType)
 
 		attachments = append(attachments, EmailAttachment{
 			Filename:    filename,
@@ -266,28 +244,7 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
 		body = re.ReplaceAllLiteralString(body, dataURI)
 
-		filename := ef.CID
-		if filename == "" {
-			filename = "embedded_image"
-		}
-		if !strings.Contains(filename, ".") {
-			ext := "dat"
-			switch mimeType {
-			case "image/jpeg":
-				ext = "jpg"
-			case "image/png":
-				ext = "png"
-			case "image/gif":
-				ext = "gif"
-			case "application/pdf":
-				ext = "pdf"
-			default:
-				if parts := strings.Split(mimeType, "/"); len(parts) > 1 {
-					ext = parts[1]
-				}
-			}
-			filename = fmt.Sprintf("%s.%s", filename, ext)
-		}
+		filename := embeddedFilename(ef, mimeType)
 		attachments = append(attachments, EmailAttachment{
 			Filename:    filename,
 			ContentType: mimeType,
@@ -343,4 +300,41 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 		HasInnerEmail: hasInnerPecEmail,
 		Date:          innerEmail.Header.Get("Date"),
 	}, nil
+}
+
+// embeddedFilename returns the best display filename for an embedded file:
+// the filename declared by the MIME part when present, otherwise a name
+// derived from the Content-ID. Content-IDs are not real filenames (e.g.
+// "c181c7cd@yahoo.com"), so in that case an extension matching the MIME type
+// is always appended unless the name already ends with it.
+func embeddedFilename(ef EmbeddedFile, mimeType string) string {
+	if ef.Filename != "" {
+		return ef.Filename
+	}
+
+	base := ef.CID
+	if base == "" {
+		base = "embedded_image"
+	}
+
+	ext := "dat"
+	switch mimeType {
+	case "image/jpeg":
+		ext = "jpg"
+	case "image/png":
+		ext = "png"
+	case "image/gif":
+		ext = "gif"
+	case "application/pdf":
+		ext = "pdf"
+	default:
+		if parts := strings.Split(mimeType, "/"); len(parts) > 1 {
+			ext = parts[1]
+		}
+	}
+
+	if strings.HasSuffix(strings.ToLower(base), "."+ext) {
+		return base
+	}
+	return fmt.Sprintf("%s.%s", base, ext)
 }

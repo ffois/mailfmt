@@ -149,7 +149,14 @@ func parseMultipartRelated(msg io.Reader, boundary string) (textBody, htmlBody s
 			attachments = append(attachments, at...)
 			embeddedFiles = append(embeddedFiles, ef...)
 		default:
-			if isEmbeddedFile(part) || part.Header.Get("Content-Id") != "" {
+			if isAttachment(part) && isAttachmentDisposition(part) {
+				at, err := decodeAttachment(part)
+				if err != nil {
+					return textBody, htmlBody, attachments, embeddedFiles, err
+				}
+
+				attachments = append(attachments, at)
+			} else if isEmbeddedFile(part) || part.Header.Get("Content-Id") != "" {
 				ef, err := decodeEmbeddedFile(part)
 				if err != nil {
 					return textBody, htmlBody, attachments, embeddedFiles, err
@@ -215,7 +222,14 @@ func parseMultipartAlternative(msg io.Reader, boundary string) (textBody, htmlBo
 			attachments = append(attachments, at...)
 			embeddedFiles = append(embeddedFiles, ef...)
 		default:
-			if isEmbeddedFile(part) {
+			if isAttachment(part) && isAttachmentDisposition(part) {
+				at, err := decodeAttachment(part)
+				if err != nil {
+					return textBody, htmlBody, attachments, embeddedFiles, err
+				}
+
+				attachments = append(attachments, at)
+			} else if isEmbeddedFile(part) {
 				ef, err := decodeEmbeddedFile(part)
 				if err != nil {
 					return textBody, htmlBody, attachments, embeddedFiles, err
@@ -284,6 +298,15 @@ func parseMultipartMixed(msg io.Reader, boundary string) (textBody, htmlBody str
 			}
 
 			attachments = append(attachments, at)
+		} else if isAttachment(part) && (isAttachmentDisposition(part) || part.Header.Get("Content-Id") == "") {
+			// A declared filename wins over the presence of a Content-Id when
+			// the part is explicitly an attachment (or has no Content-Id at all).
+			at, err := decodeAttachment(part)
+			if err != nil {
+				return textBody, htmlBody, attachments, embeddedFiles, err
+			}
+
+			attachments = append(attachments, at)
 		} else if part.Header.Get("Content-Id") != "" {
 			ef, err := decodeEmbeddedFile(part)
 			if err != nil {
@@ -291,13 +314,6 @@ func parseMultipartMixed(msg io.Reader, boundary string) (textBody, htmlBody str
 			}
 
 			embeddedFiles = append(embeddedFiles, ef)
-		} else if isAttachment(part) {
-			at, err := decodeAttachment(part)
-			if err != nil {
-				return textBody, htmlBody, attachments, embeddedFiles, err
-			}
-
-			attachments = append(attachments, at)
 		} else {
 			return textBody, htmlBody, attachments, embeddedFiles, fmt.Errorf("Unknown multipart/mixed nested mime type: %s", contentType)
 		}
@@ -347,6 +363,28 @@ func isEmbeddedFile(part *multipart.Part) bool {
 	return part.Header.Get("Content-Transfer-Encoding") != ""
 }
 
+// partFilename returns the declared filename of a MIME part, looking at the
+// Content-Disposition "filename" parameter first and falling back to the
+// Content-Type "name" parameter.
+func partFilename(part *multipart.Part) string {
+	if name := decodeMimeSentence(part.FileName()); name != "" {
+		return name
+	}
+	if _, params, err := mime.ParseMediaType(part.Header.Get("Content-Type")); err == nil {
+		return decodeMimeSentence(params["name"])
+	}
+	return ""
+}
+
+// isAttachmentDisposition reports whether the part is explicitly declared as
+// an attachment via its Content-Disposition header. Some mailers (e.g. Yahoo)
+// add a Content-Id to real attachments too, so the disposition must win over
+// the presence of a Content-Id when classifying parts.
+func isAttachmentDisposition(part *multipart.Part) bool {
+	disposition, _, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+	return err == nil && strings.EqualFold(disposition, "attachment")
+}
+
 func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 	cid := decodeMimeSentence(part.Header.Get("Content-Id"))
 	decoded, err := decodeContent(part, part.Header.Get("Content-Transfer-Encoding"))
@@ -355,6 +393,7 @@ func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 	}
 
 	ef.CID = strings.Trim(cid, "<>")
+	ef.Filename = partFilename(part)
 	ef.Data = decoded
 	ef.ContentType = part.Header.Get("Content-Type")
 
@@ -362,11 +401,11 @@ func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 }
 
 func isAttachment(part *multipart.Part) bool {
-	return part.FileName() != ""
+	return partFilename(part) != ""
 }
 
 func decodeAttachment(part *multipart.Part) (at Attachment, err error) {
-	filename := decodeMimeSentence(part.FileName())
+	filename := partFilename(part)
 	decoded, err := decodeContent(part, part.Header.Get("Content-Transfer-Encoding"))
 	if err != nil {
 		return
@@ -537,9 +576,11 @@ type Attachment struct {
 	Data        io.Reader
 }
 
-// EmbeddedFile with content id, content type and data (as a io.Reader)
+// EmbeddedFile with content id, content type and data (as a io.Reader).
+// Filename holds the declared filename of the part, when present.
 type EmbeddedFile struct {
 	CID         string
+	Filename    string
 	ContentType string
 	Data        io.Reader
 }
