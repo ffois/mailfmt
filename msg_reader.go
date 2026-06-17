@@ -36,6 +36,7 @@ const (
 	pidTagConversationTopic    = 0x0070
 	pidTagMessageClass         = 0x001A
 	pidTagBody                 = 0x1000
+	pidTagRtfCompressed        = 0x1009
 	pidTagBodyHTML             = 0x1013
 	pidTagSenderName           = 0x0C1A
 	pidTagSenderEmailAddress   = 0x0C1F
@@ -442,6 +443,12 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 	email.Body = getPropString(props, pidTagBodyHTML)
 	if email.Body == "" {
 		email.Body = getPropBinary(props, pidTagBodyHTML)
+	}
+	if email.Body == "" {
+		// No plain HTML body: Outlook commonly stores HTML mail as compressed
+		// RTF with the original markup encapsulated. Recovering it keeps the
+		// inline cid: image references that are substituted below.
+		email.Body = htmlFromCompressedRTF(props)
 	}
 	if email.Body == "" {
 		email.Body = textToHTML(getPropString(props, pidTagBody))
