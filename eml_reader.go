@@ -147,6 +147,7 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		Attachments:   attachments,
 		IsPec:         isPec,
 		HasInnerEmail: hasInnerEmail,
+		Date:          email.Header.Get("Date"),
 	}, nil
 }
 
