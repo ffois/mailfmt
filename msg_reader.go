@@ -543,7 +543,7 @@ func getPropString(props map[uint32][]byte, propID uint32) string {
 
 func getPropBinary(props map[uint32][]byte, propID uint32) string {
 	if data, ok := props[(propID<<16)|propTypeBinary]; ok {
-		return decodeWindows1252(string(data))
+		return ConvertToUTF8(string(data))
 	}
 	return ""
 }
@@ -560,7 +560,9 @@ func textToHTML(text string) string {
 	return text
 }
 
-func decodeWindows1252(s string) string {
+// ConvertToUTF8 returns s unchanged if it is already valid UTF-8, otherwise
+// decodes it from Windows-1252. On decode failure it returns s unchanged.
+func ConvertToUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
@@ -572,7 +574,7 @@ func decodeWindows1252(s string) string {
 }
 
 func decodeString8(data []byte) string {
-	return decodeWindows1252(strings.TrimRight(string(data), "\x00"))
+	return ConvertToUTF8(strings.TrimRight(string(data), "\x00"))
 }
 
 func decodeUTF16(data []byte) string {

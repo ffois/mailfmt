@@ -9,10 +9,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"unicode/utf8"
-
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
 )
 
 type EmailAttachment struct {
@@ -50,7 +46,7 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	formatAddress := func(addr []*mail.Address) []string {
 		var result []string
 		for _, a := range addr {
-			result = append(result, convertToUTF8(a.String()))
+			result = append(result, ConvertToUTF8(a.String()))
 		}
 		return result
 	}
@@ -138,31 +134,17 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	}
 
 	return &EmailData{
-		From:          convertToUTF8(from),
+		From:          ConvertToUTF8(from),
 		To:            formatAddress(email.To),
 		Cc:            formatAddress(email.Cc),
 		Bcc:           formatAddress(email.Bcc),
-		Subject:       convertToUTF8(email.Subject),
-		Body:          convertToUTF8(body),
+		Subject:       ConvertToUTF8(email.Subject),
+		Body:          ConvertToUTF8(body),
 		Attachments:   attachments,
 		IsPec:         isPec,
 		HasInnerEmail: hasInnerEmail,
 		Date:          email.Header.Get("Date"),
 	}, nil
-}
-
-func convertToUTF8(s string) string {
-	if utf8.ValidString(s) {
-		return s
-	}
-
-	// If invalid UTF-8, assume Windows-1252 (superset of ISO-8859-1)
-	decoder := charmap.Windows1252.NewDecoder()
-	decoded, _, err := transform.String(decoder, s)
-	if err != nil {
-		return s // Return as-is if decoding fails
-	}
-	return decoded
 }
 
 func ReadPecInnerEml(filePath string) (*EmailData, error) {
@@ -210,8 +192,7 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 	formatAddress := func(addr []*mail.Address) []string {
 		var result []string
 		for _, a := range addr {
-			// convertToUTF8 is defined in eml_reader.go (same package)
-			result = append(result, convertToUTF8(a.String()))
+			result = append(result, ConvertToUTF8(a.String()))
 		}
 		return result
 	}
@@ -290,12 +271,12 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 	}
 
 	return &EmailData{
-		From:          convertToUTF8(from),
+		From:          ConvertToUTF8(from),
 		To:            formatAddress(innerEmail.To),
 		Cc:            formatAddress(innerEmail.Cc),
 		Bcc:           formatAddress(innerEmail.Bcc),
-		Subject:       convertToUTF8(innerEmail.Subject),
-		Body:          convertToUTF8(body),
+		Subject:       ConvertToUTF8(innerEmail.Subject),
+		Body:          ConvertToUTF8(body),
 		Attachments:   attachments,
 		IsPec:         isPec,
 		HasInnerEmail: hasInnerPecEmail,
