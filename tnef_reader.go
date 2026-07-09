@@ -185,7 +185,7 @@ func findEmbeddedTNEFStreamsFromRaw(tnefData []byte) [][]byte {
 		// attAttachment (0x00069005) at attachment level (0x02)
 		if level == 0x02 && attrID == 0x00069005 && attrLen > 100 {
 			mapiData := tnefData[dataStart : dataStart+attrLen]
-			embedded := extractPRAttachDataObjFromMAPI(mapiData)
+			embedded := extractPRAttachDataObjDirect(mapiData)
 			if len(embedded) > 22 {
 				// Skip the 16-byte IID_IMessage GUID
 				afterGuid := embedded[16:]
@@ -201,56 +201,9 @@ func findEmbeddedTNEFStreamsFromRaw(tnefData []byte) [][]byte {
 	return streams
 }
 
-// extractPRAttachDataObjFromMAPI parses a MAPI properties block (from an
+// extractPRAttachDataObjDirect scans a MAPI properties block (from an
 // attAttachment attribute) and returns the raw value of PR_ATTACH_DATA_OBJ
 // (property ID 0x3701, type PT_OBJECT 0x000D).
-func extractPRAttachDataObjFromMAPI(data []byte) []byte {
-	if len(data) < 4 {
-		return nil
-	}
-	count := int(binary.LittleEndian.Uint32(data[0:4]))
-	off := 4
-
-	for i := 0; i < count && off+4 <= len(data); i++ {
-		propTag := binary.LittleEndian.Uint32(data[off : off+4])
-		propType := propTag & 0xFFFF
-		propID := (propTag >> 16) & 0xFFFF
-		off += 4
-
-		// Named properties (ID >= 0x8000) have extra GUID + kind fields.
-		if propID >= 0x8000 {
-			if off+20 > len(data) {
-				return nil
-			}
-			kind := binary.LittleEndian.Uint32(data[off+16 : off+20])
-			off += 20
-			if kind == 0 { // MNID_ID
-				off += 4
-			} else { // MNID_STRING
-				if off+4 > len(data) {
-					return nil
-				}
-				nameLen := int(binary.LittleEndian.Uint32(data[off : off+4]))
-				off += 4 + nameLen
-				off += padTo4(nameLen)
-			}
-		}
-
-		off = skipMAPIPropValue(data, off, propType, propID)
-		if off < 0 {
-			return nil // parse error
-		}
-		// If skipMAPIPropValue returned a special sentinel, extract it.
-		// We use a hack: skipMAPIPropValue can't return the data directly,
-		// so we handle PT_OBJECT / 0x3701 inline below.
-	}
-
-	// Simpler approach: re-scan specifically for 0x3701.
-	return extractPRAttachDataObjDirect(data)
-}
-
-// extractPRAttachDataObjDirect re-scans the MAPI property block and
-// returns the raw value of PR_ATTACH_DATA_OBJ (0x3701, PT_OBJECT).
 func extractPRAttachDataObjDirect(data []byte) []byte {
 	if len(data) < 4 {
 		return nil
@@ -383,33 +336,6 @@ func skipMVFixed(data []byte, off int, elemSize int) int {
 	cnt := int(binary.LittleEndian.Uint32(data[off : off+4]))
 	off += 4 + cnt*elemSize
 	return off
-}
-
-// skipMAPIPropValue is a generic value skipper (unused in the current flow
-// but kept for completeness).
-func skipMAPIPropValue(data []byte, off int, propType uint32, _ uint32) int {
-	switch propType {
-	case 0x0002:
-		return off + 4
-	case 0x0003, 0x000A, 0x000B, 0x0004:
-		return off + 4
-	case 0x0005, 0x0006, 0x0007, 0x0014, 0x0040:
-		return off + 8
-	case 0x0048:
-		return off + 16
-	case 0x001E, 0x001F, 0x0102, 0x000D:
-		return skipCountedBlobs(data, off)
-	case 0x1002, 0x1003:
-		return skipMVFixed(data, off, 4)
-	case 0x1005, 0x1014, 0x1040:
-		return skipMVFixed(data, off, 8)
-	case 0x1048:
-		return skipMVFixed(data, off, 16)
-	case 0x101E, 0x101F, 0x1102:
-		return skipCountedBlobs(data, off)
-	default:
-		return -1
-	}
 }
 
 // padTo4 returns the number of padding bytes needed to reach a 4-byte boundary.
