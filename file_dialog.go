@@ -150,6 +150,9 @@ func CheckFolderWritable(folderPath string) error {
 		return nil
 	}
 	targetFolder = ExpandWindowsEnvVars(targetFolder)
+	if strings.TrimSpace(targetFolder) == "" {
+		return fmt.Errorf("folder %q expands to an empty path", folderPath)
+	}
 
 	probe, err := os.CreateTemp(targetFolder, ".emly-write-test-*")
 	if err != nil {

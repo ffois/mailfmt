@@ -10,6 +10,11 @@ func TestCheckFolderWritable(t *testing.T) {
 	writable := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 
+	regularFile := filepath.Join(t.TempDir(), "not-a-folder.txt")
+	if err := os.WriteFile(regularFile, []byte("emly"), 0644); err != nil {
+		t.Fatalf("failed to create regular file fixture: %v", err)
+	}
+
 	tests := []struct {
 		name      string
 		folder    string
@@ -21,6 +26,7 @@ func TestCheckFolderWritable(t *testing.T) {
 		{name: "blank path is always valid", folder: "   ", wantError: false},
 		{name: "writable folder", folder: writable, wantError: false},
 		{name: "missing folder", folder: missing, wantError: true},
+		{name: "target is a regular file, not a directory", folder: regularFile, wantError: true},
 	}
 
 	for _, tt := range tests {
@@ -33,6 +39,19 @@ func TestCheckFolderWritable(t *testing.T) {
 				t.Fatalf("CheckFolderWritable(%q) = %v, want nil", tt.folder, err)
 			}
 		})
+	}
+}
+
+// A configured path that expands to empty (e.g. "%ONEDRIVE%" with the
+// variable undefined) must fail the check, not silently fall back to the OS
+// temp dir the way os.CreateTemp("", ...) would. SaveAttachmentToFolder
+// fails on the same input via os.MkdirAll(""), so the check must agree.
+func TestCheckFolderWritableEmptyAfterExpansion(t *testing.T) {
+	t.Setenv("EMLY_TEST_UNDEFINED_VAR", "")
+
+	err := CheckFolderWritable("%EMLY_TEST_UNDEFINED_VAR%")
+	if err == nil {
+		t.Fatal("CheckFolderWritable of an env var that expands to empty = nil, want error")
 	}
 }
 
