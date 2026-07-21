@@ -128,6 +128,45 @@ func SaveAttachmentToFolder(filename string, base64Data string, folderPath strin
 	return fullPath, nil
 }
 
+// CheckFolderWritable reports whether attachments can actually be saved into
+// folderPath, by creating a small probe file there and removing it again.
+//
+// A real write is the only reliable test on Windows: effective permissions
+// depend on inherited ACLs, read-only network shares and Defender's
+// Controlled Folder Access, none of which os.Stat can see.
+//
+// Unlike SaveAttachmentToFolder, this never creates the folder: a missing
+// folder is a condition to report, not one to silently provision.
+//
+// Parameters:
+//   - folderPath: The folder to test; empty means the Downloads default,
+//     which is always considered valid
+//
+// Returns:
+//   - error: Any error preventing EMLy from writing into the folder
+func CheckFolderWritable(folderPath string) error {
+	targetFolder := strings.TrimSpace(folderPath)
+	if targetFolder == "" {
+		return nil
+	}
+	targetFolder = ExpandWindowsEnvVars(targetFolder)
+
+	probe, err := os.CreateTemp(targetFolder, ".emly-write-test-*")
+	if err != nil {
+		return fmt.Errorf("cannot write into folder %q: %w", targetFolder, err)
+	}
+	defer os.Remove(probe.Name())
+
+	if _, err := probe.WriteString("emly"); err != nil {
+		probe.Close()
+		return fmt.Errorf("cannot write into folder %q: %w", targetFolder, err)
+	}
+	if err := probe.Close(); err != nil {
+		return fmt.Errorf("cannot write into folder %q: %w", targetFolder, err)
+	}
+	return nil
+}
+
 // OpenFileExplorer opens Windows Explorer and selects the specified file.
 // Uses the /select parameter to highlight the file in Explorer.
 // If the path is a directory, opens the directory without selecting anything.
