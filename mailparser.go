@@ -1,6 +1,7 @@
 // This file is adapted from github.com/DusanKasan/parsemail, MIT licensed,
 // Copyright (c) 2017 Dusan Kasan. See the NOTICE file at the module root for
 // the full upstream license text.
+
 package mailfmt
 
 import (
