@@ -1,0 +1,3 @@
+# Go sources stay LF in the worktree regardless of core.autocrlf, so gofmt
+# and diffs behave the same on Windows and on CI.
+*.go text eol=lf
