@@ -86,7 +86,9 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
 		body = re.ReplaceAllLiteralString(body, dataURI)
 
-		// ALSO ADD AS ATTACHMENTS for the viewer
+		// Also list inline images as regular attachments, in addition to
+		// inlining them via the data URI substitution above, so callers
+		// that only look at Attachments still see them.
 		filename := embeddedFilename(ef, mimeType)
 
 		attachments = append(attachments, EmailAttachment{

@@ -82,7 +82,7 @@ func TestHTMLFromCompressedRTFNonHTML(t *testing.T) {
 // End-to-end check against a real .msg whose body is compressed RTF with inline
 // images. Gated on MSG_DEBUG_PATH so it never runs (or fails) in CI.
 //
-//	MSG_DEBUG_PATH="C:\path\to\file.msg" go test ./backend/utils/mail -run TestReadMSGInlineImages -v
+//	MSG_DEBUG_PATH="C:\path\to\file.msg" go test . -run TestReadMSGInlineImagesE2E -v
 func TestReadMSGInlineImagesE2E(t *testing.T) {
 	path := os.Getenv("MSG_DEBUG_PATH")
 	if path == "" {

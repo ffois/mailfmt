@@ -1,3 +1,6 @@
+// This file is adapted from github.com/DusanKasan/parsemail, MIT licensed,
+// Copyright (c) 2017 Dusan Kasan. See the NOTICE file at the module root for
+// the full upstream license text.
 package mailfmt
 
 import (
@@ -21,7 +24,7 @@ const (
 	contentTypeTextPlain            = "text/plain"
 )
 
-// Parse an email message read from io.Reader into parsemail.Email struct
+// Parse reads an email message from io.Reader and returns it as an Email struct.
 func Parse(r io.Reader) (email Email, err error) {
 	msg, err := mail.ReadMessage(r)
 	if err != nil {
@@ -585,7 +588,8 @@ type EmbeddedFile struct {
 	Data        io.Reader
 }
 
-// Email with fields for all the headers defined in RFC5322 with it's attachments and
+// Email with fields for all the headers defined in RFC5322, its attachments, and
+// embedded files.
 type Email struct {
 	Header mail.Header
 

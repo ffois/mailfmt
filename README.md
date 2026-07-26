@@ -57,6 +57,13 @@ richer low-level type returned by `Parse`.
   `postacert.eml`, with `daticert.xml` + S/MIME detection.
 - Attachments and inline embedded files (by Content-ID).
 
+## Credits
+
+`mailparser.go` is adapted from
+[github.com/DusanKasan/parsemail](https://github.com/DusanKasan/parsemail),
+MIT licensed, Copyright (c) 2017 Dusan Kasan. See [NOTICE](./NOTICE) for the
+full upstream license text.
+
 ## License
 
 MIT
