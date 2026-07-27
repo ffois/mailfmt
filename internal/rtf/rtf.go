@@ -1,4 +1,4 @@
-package mailfmt
+package rtf
 
 import (
 	"bytes"
@@ -23,8 +23,8 @@ import (
 // caller's Content-Id substitution can turn them into inline data URIs.
 
 const (
-	rtfCompressedMagic   = 0x75465A4C // "LZFu" – compressed payload
-	rtfUncompressedMagic = 0x414C454D // "MELA" – raw RTF follows the header
+	RTFCompressedMagic   = 0x75465A4C // "LZFu" – compressed payload
+	RTFUncompressedMagic = 0x414C454D // "MELA" – raw RTF follows the header
 )
 
 // rtfDictInit is the 207-byte dictionary preload mandated by [MS-OXRTFCP].
@@ -51,24 +51,8 @@ func init() {
 	}
 }
 
-// htmlFromCompressedRTF recovers an HTML body from a message's
-// PidTagRtfCompressed stream. It only returns HTML when the RTF was produced
-// from HTML (\fromhtml1); genuine RTF documents yield "" so the caller can fall
-// back to the plain-text body.
-func htmlFromCompressedRTF(props map[uint32][]byte) string {
-	data, ok := props[(pidTagRtfCompressed<<16)|propTypeBinary]
-	if !ok {
-		return ""
-	}
-	rtf, err := decompressRTF(data)
-	if err != nil || !isEncapsulatedHTML(rtf) {
-		return ""
-	}
-	return deEncapsulateHTML(rtf)
-}
-
-// decompressRTF inflates a PidTagRtfCompressed stream into raw RTF bytes.
-func decompressRTF(data []byte) ([]byte, error) {
+// Decompress inflates a PidTagRtfCompressed stream into raw RTF bytes.
+func Decompress(data []byte) ([]byte, error) {
 	if len(data) < 16 {
 		return nil, errors.New("rtf: stream too short")
 	}
@@ -78,13 +62,13 @@ func decompressRTF(data []byte) ([]byte, error) {
 	compType := binary.LittleEndian.Uint32(data[8:12])
 
 	switch compType {
-	case rtfUncompressedMagic:
+	case RTFUncompressedMagic:
 		end := 16 + int(rawSize)
 		if end > len(data) || rawSize == 0 {
 			end = len(data)
 		}
 		return data[16:end], nil
-	case rtfCompressedMagic:
+	case RTFCompressedMagic:
 		// fall through to decompression below
 	default:
 		return nil, fmt.Errorf("rtf: unknown compression type 0x%08X", compType)
@@ -143,9 +127,9 @@ func decompressRTF(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-// isEncapsulatedHTML reports whether decompressed RTF carries HTML produced by
+// IsEncapsulatedHTML reports whether decompressed RTF carries HTML produced by
 // Outlook (\fromhtml1 in the header).
-func isEncapsulatedHTML(rtf []byte) bool {
+func IsEncapsulatedHTML(rtf []byte) bool {
 	head := rtf
 	if len(head) > 1024 {
 		head = head[:1024]
@@ -180,8 +164,8 @@ type rtfState struct {
 	uc      int  // \uc unicode fallback skip count
 }
 
-// deEncapsulateHTML extracts the original HTML from \fromhtml RTF.
-func deEncapsulateHTML(rtf []byte) string {
+// DeEncapsulateHTML extracts the original HTML from \fromhtml RTF.
+func DeEncapsulateHTML(rtf []byte) string {
 	cpg := detectCodePage(rtf)
 
 	var out bytes.Buffer
