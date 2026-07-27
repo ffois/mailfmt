@@ -1,4 +1,4 @@
-package mailfmt
+package tnef
 
 import (
 	"encoding/binary"
@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/teamwork/tnef"
+	"github.com/ffois/mailfmt/internal/email"
+	tneflib "github.com/teamwork/tnef"
 )
 
 // tnefMagic is the TNEF file signature (little-endian 0x223E9F78).
@@ -14,8 +15,8 @@ var tnefMagic = []byte{0x78, 0x9F, 0x3E, 0x22}
 
 const maxTNEFDepth = 10
 
-// isTNEFData returns true if the given byte slice starts with the TNEF magic number.
-func isTNEFData(data []byte) bool {
+// IsTNEFData returns true if the given byte slice starts with the TNEF magic number.
+func IsTNEFData(data []byte) bool {
 	return len(data) >= 4 &&
 		data[0] == tnefMagic[0] &&
 		data[1] == tnefMagic[1] &&
@@ -25,7 +26,7 @@ func isTNEFData(data []byte) bool {
 
 // isTNEFAttachment returns true if an attachment is a TNEF-encoded winmail.dat.
 // Detection is based on filename, content-type, or the TNEF magic bytes.
-func isTNEFAttachment(att EmailAttachment) bool {
+func isTNEFAttachment(att email.Attachment) bool {
 	filenameLower := strings.ToLower(att.Filename)
 	if filenameLower == "winmail.dat" {
 		return true
@@ -35,26 +36,26 @@ func isTNEFAttachment(att EmailAttachment) bool {
 		strings.Contains(ctLower, "application/vnd.ms-tnef") {
 		return true
 	}
-	return isTNEFData(att.Data)
+	return IsTNEFData(att.Data)
 }
 
-// extractTNEFAttachments decodes a TNEF blob and returns the files embedded
+// Extract decodes a TNEF blob and returns the files embedded
 // inside it, recursively following nested embedded MAPI messages.
-func extractTNEFAttachments(data []byte) ([]EmailAttachment, error) {
+func Extract(data []byte) ([]email.Attachment, error) {
 	return extractTNEFRecursive(data, 0)
 }
 
-func extractTNEFRecursive(data []byte, depth int) ([]EmailAttachment, error) {
+func extractTNEFRecursive(data []byte, depth int) ([]email.Attachment, error) {
 	if depth > maxTNEFDepth {
 		return nil, nil
 	}
 
-	decoded, err := tnef.Decode(data)
+	decoded, err := tneflib.Decode(data)
 	if err != nil {
 		return nil, err
 	}
 
-	var attachments []EmailAttachment
+	var attachments []email.Attachment
 
 	// Collect non-placeholder file attachments from the library output.
 	for _, att := range decoded.Attachments {
@@ -72,7 +73,7 @@ func extractTNEFRecursive(data []byte, depth int) ([]EmailAttachment, error) {
 			filename = inferFilename(att.Data)
 		}
 
-		attachments = append(attachments, EmailAttachment{
+		attachments = append(attachments, email.Attachment{
 			Filename:    filename,
 			ContentType: mimeTypeFromFilename(filename),
 			Data:        att.Data,
@@ -92,7 +93,7 @@ func extractTNEFRecursive(data []byte, depth int) ([]EmailAttachment, error) {
 // isEmbeddedMsgPlaceholder returns true if the attachment is a tiny placeholder
 // that Outlook generates for embedded MAPI messages ("L'allegato è un messaggio
 // incorporato MAPI 1.0" or equivalent in other languages).
-func isEmbeddedMsgPlaceholder(att *tnef.Attachment) bool {
+func isEmbeddedMsgPlaceholder(att *tneflib.Attachment) bool {
 	if len(att.Data) > 300 {
 		return false
 	}
@@ -107,7 +108,7 @@ func inferFilename(data []byte) string {
 	if looksLikeEML(data) {
 		return "embedded_message.eml"
 	}
-	if isTNEFData(data) {
+	if IsTNEFData(data) {
 		return "embedded.dat"
 	}
 	if len(data) >= 8 {
@@ -136,14 +137,14 @@ func looksLikeEML(data []byte) bool {
 		strings.HasPrefix(prefix, "return-path:")
 }
 
-// expandTNEFAttachments iterates over the attachment list and replaces any
+// Expand iterates over the attachment list and replaces any
 // TNEF-encoded winmail.dat entries with the files they contain. Attachments
 // that are not TNEF are passed through unchanged.
-func expandTNEFAttachments(attachments []EmailAttachment) []EmailAttachment {
-	var result []EmailAttachment
+func Expand(attachments []email.Attachment) []email.Attachment {
+	var result []email.Attachment
 	for _, att := range attachments {
 		if isTNEFAttachment(att) {
-			extracted, err := extractTNEFAttachments(att.Data)
+			extracted, err := Extract(att.Data)
 			if err == nil && len(extracted) > 0 {
 				result = append(result, extracted...)
 				continue
@@ -165,7 +166,7 @@ func expandTNEFAttachments(attachments []EmailAttachment) []EmailAttachment {
 // and extracts any PR_ATTACH_DATA_OBJ (0x3701) values that begin with a
 // TNEF signature.
 func findEmbeddedTNEFStreamsFromRaw(tnefData []byte) [][]byte {
-	if len(tnefData) < 6 || !isTNEFData(tnefData) {
+	if len(tnefData) < 6 || !IsTNEFData(tnefData) {
 		return nil
 	}
 
@@ -189,7 +190,7 @@ func findEmbeddedTNEFStreamsFromRaw(tnefData []byte) [][]byte {
 			if len(embedded) > 22 {
 				// Skip the 16-byte IID_IMessage GUID
 				afterGuid := embedded[16:]
-				if isTNEFData(afterGuid) {
+				if IsTNEFData(afterGuid) {
 					streams = append(streams, afterGuid)
 				}
 			}

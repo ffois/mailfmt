@@ -9,6 +9,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/ffois/mailfmt/internal/tnef"
 )
 
 func ReadEmlFile(filePath string) (*EmailData, error) {
@@ -106,7 +108,7 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	}
 
 	// Expand any TNEF (winmail.dat) attachments into their contained files.
-	attachments = expandTNEFAttachments(attachments)
+	attachments = tnef.Expand(attachments)
 
 	isPec := hasDatiCert && hasSmime
 
@@ -243,7 +245,7 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 	}
 
 	// Expand any TNEF (winmail.dat) attachments into their contained files.
-	attachments = expandTNEFAttachments(attachments)
+	attachments = tnef.Expand(attachments)
 
 	isPec := hasDatiCert && hasSmime
 
