@@ -1,4 +1,4 @@
-﻿package mailfmt
+package mailfmt
 
 import (
 	"bufio"
@@ -16,10 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
 
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/transform"
+	"github.com/ffois/mailfmt/internal/email"
 )
 
 const (
@@ -536,7 +534,7 @@ func getPropString(props map[uint32][]byte, propID uint32) string {
 		return decodeUTF16(data)
 	}
 	if data, ok := props[(propID<<16)|propTypeString8]; ok {
-		return decodeString8(data)
+		return email.DecodeString8(data)
 	}
 	return ""
 }
@@ -558,23 +556,6 @@ func textToHTML(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "<br>")
 	text = strings.ReplaceAll(text, "\n", "<br>")
 	return text
-}
-
-// ConvertToUTF8 returns s unchanged if it is already valid UTF-8, otherwise
-// decodes it from Windows-1252. On decode failure it returns s unchanged.
-func ConvertToUTF8(s string) string {
-	if utf8.ValidString(s) {
-		return s
-	}
-	decoded, _, err := transform.String(charmap.Windows1252.NewDecoder(), s)
-	if err != nil {
-		return s
-	}
-	return decoded
-}
-
-func decodeString8(data []byte) string {
-	return ConvertToUTF8(strings.TrimRight(string(data), "\x00"))
 }
 
 func decodeUTF16(data []byte) string {
@@ -649,7 +630,7 @@ func decodePropertyString(data []byte, propType uint16) string {
 	case propTypeString:
 		return decodeUTF16(data)
 	case propTypeString8:
-		return decodeString8(data)
+		return email.DecodeString8(data)
 	}
 	return ""
 }

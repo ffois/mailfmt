@@ -11,25 +11,6 @@ import (
 	"strings"
 )
 
-type EmailAttachment struct {
-	Filename    string `json:"filename"`
-	ContentType string `json:"contentType"`
-	Data        []byte `json:"data"`
-}
-
-type EmailData struct {
-	From          string            `json:"from"`
-	To            []string          `json:"to"`
-	Cc            []string          `json:"cc"`
-	Bcc           []string          `json:"bcc"`
-	Subject       string            `json:"subject"`
-	Body          string            `json:"body"`
-	Attachments   []EmailAttachment `json:"attachments"`
-	IsPec         bool              `json:"isPec"`
-	HasInnerEmail bool              `json:"hasInnerEmail"`
-	Date          string            `json:"date"`
-}
-
 func ReadEmlFile(filePath string) (*EmailData, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
