@@ -37,13 +37,13 @@ mailfmt/
   alias.go              re-export dei tipi e delle funzioni interne
   golden_test.go        golden test table-driven su testdata/
   internal/
-    email/   email.go   Data, Attachment, ConvertToUTF8
-    mime/    mime.go    Parse, Email, Attachment, EmbeddedFile
-    rtf/     rtf.go     Decompress, DeEncapsulateHTML, IsEncapsulatedHTML
-    tnef/    tnef.go    Extract, Expand, IsTNEFData
-    msg/     msg.go     ReadFile, Read, CFB reader, property parsing
-    eml/     eml.go     ReadFile, Build
-    pec/     pec.go     ReadInner
+    email/      email.go   Data, Attachment, ConvertToUTF8
+    mimeparse/  mime.go    Parse, Email, Attachment, EmbeddedFile
+    rtf/        rtf.go     Decompress, DeEncapsulateHTML, IsEncapsulatedHTML
+    tnef/       tnef.go    Extract, Expand, IsTNEFData
+    msg/        msg.go     ReadFile, Read, CFB reader, property parsing
+    eml/        eml.go     ReadFile, Build
+    pec/        pec.go     ReadInner
   testdata/
     eml/ msg/ pec/ rtf/ tnef/
 ```
@@ -53,13 +53,28 @@ mailfmt/
 Aciclico per costruzione:
 
 ```
-email, mime, rtf   ->  nessuna dipendenza interna
-tnef               ->  email
-eml                ->  email, mime, tnef
-pec                ->  email, mime, eml
-msg                ->  email, rtf, tnef
-root               ->  tutti
+email, mimeparse, rtf  ->  nessuna dipendenza interna
+tnef                   ->  email
+eml                    ->  email, mimeparse, tnef
+pec                    ->  email, mimeparse, eml
+msg                    ->  email, rtf
+root                   ->  tutti
 ```
+
+`msg` non dipende da `tnef`: `msg_reader.go` non chiama nessuna delle funzioni
+TNEF. L'espansione dei `winmail.dat` avviene solo nel percorso EML/PEC, dentro
+`eml.Build`.
+
+### Collisioni di nome
+
+Due package interni collidono con package importati, e vanno risolte
+esplicitamente:
+
+- `internal/mimeparse` invece di `internal/mime`: il codice del parser importa
+  lo stdlib `mime`, `mime/multipart` e `mime/quotedprintable`. Un package
+  chiamato `mime` che importa `mime` non compila.
+- `internal/tnef` importa `github.com/teamwork/tnef`, che dichiara anch'esso
+  `package tnef`. L'import esterno va aliasato: `tneflib "github.com/teamwork/tnef"`.
 
 `internal/` impedisce che qualcuno importi un sotto-package dall'esterno, quindi
 questi confini restano ridiscutibili in futuro senza rompere nessuno.
@@ -92,8 +107,8 @@ stessa costruzione di `EmailData`.
 `internal/eml` esporta:
 
 ```go
-// Build converte un mime.Email nel formato piatto email.Data.
-func Build(m mime.Email) *email.Data
+// Build converte un mimeparse.Email nel formato piatto email.Data.
+func Build(m mimeparse.Email) *email.Data
 ```
 
 `eml.ReadFile` diventa "apri file, `mime.Parse`, `Build`". `pec.ReadInner`
@@ -112,15 +127,15 @@ ri-espone con type alias, che sono identità di tipo — non tipi nuovi — quin
 ```go
 type EmailData = email.Data
 type EmailAttachment = email.Attachment
-type Email = mime.Email
-type Attachment = mime.Attachment
-type EmbeddedFile = mime.EmbeddedFile
+type Email = mimeparse.Email
+type Attachment = mimeparse.Attachment
+type EmbeddedFile = mimeparse.EmbeddedFile
 
 func ReadEmlFile(path string) (*EmailData, error)      { return eml.ReadFile(path) }
 func ReadPecInnerEml(path string) (*EmailData, error)  { return pec.ReadInner(path) }
 func ReadMsgFile(path string) (*EmailData, error)      { return msg.ReadFile(path) }
 func Read(r io.ReaderAt) (*EmailData, error)           { return msg.Read(r) }
-func Parse(r io.Reader) (Email, error)                 { return mime.Parse(r) }
+func Parse(r io.Reader) (Email, error)                 { return mimeparse.Parse(r) }
 func ConvertToUTF8(s string) string                    { return email.ConvertToUTF8(s) }
 ```
 
@@ -202,7 +217,9 @@ I test esistenti vengono spostati, non riscritti:
 - `rtf_test.go` va in `internal/rtf`, meno due casi che sono MSG e non RTF:
   `TestHTMLFromCompressedRTFNonHTML` e `TestReadMSGInlineImagesE2E` vanno in
   `internal/msg`;
-- `mailparser_test.go` va in `internal/mime`;
+- `mailparser_test.go` va in `internal/mimeparse`, meno `TestEmbeddedFilename`
+  che verifica `embeddedFilename` (definita in `eml_reader.go`) e quindi va in
+  `internal/eml`;
 - `parse_test.go` resta nella root.
 
 ## Verifica
