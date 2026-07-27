@@ -8,4 +8,8 @@
 // already know the format, or need lower-level access, can call
 // ReadEmlFile, ReadMsgFile, ReadPecInnerEml, or the MIME-level Parse
 // directly instead.
+//
+// Each format is implemented in its own package under internal/, and this
+// package is the facade over them. The types below are aliases of the
+// internal ones, so they are interchangeable with them.
 package mailfmt
