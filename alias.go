@@ -7,6 +7,7 @@ import (
 	"github.com/ffois/mailfmt/internal/eml"
 	"github.com/ffois/mailfmt/internal/mimeparse"
 	"github.com/ffois/mailfmt/internal/msg"
+	"github.com/ffois/mailfmt/internal/pec"
 )
 
 // EmailData is the flat representation returned by every reader.
@@ -40,3 +41,7 @@ func ReadMsgFile(path string) (*EmailData, error) { return msg.ReadFile(path) }
 
 // Read parses an Outlook MSG message from r.
 func Read(r io.ReaderAt) (*EmailData, error) { return msg.Read(r) }
+
+// ReadPecInnerEml parses the message carried inside a PEC envelope's
+// postacert.eml part.
+func ReadPecInnerEml(path string) (*EmailData, error) { return pec.ReadInner(path) }
