@@ -49,6 +49,27 @@ func TestCFBWriterLargeStream(t *testing.T) {
 	}
 }
 
+// A mini-stream entry that spans more than one 64-byte mini sector exercises
+// the only place the writer links one mini sector to the next. Everything in
+// TestCFBWriterRoundTrip fits in a single mini sector, so that line never
+// runs there; this test pins the inter-sector-linking case with a byte-exact
+// comparison, not just a non-empty check.
+func TestCFBWriterMiniStreamMultiSector(t *testing.T) {
+	subject := strings.Repeat("Lorem ipsum dolor sit amet ", 10) // well over 64 bytes once UTF-16 encoded, still under the 4096-byte cutoff
+
+	root := &cfbEntry{name: "Root Entry"}
+	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE(subject))
+	root.addStream(substgName(pidTagBody, propTypeString), utf16LE("corpo"))
+
+	data, err := Read(bytes.NewReader(buildCFB(root)))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if data.Subject != subject {
+		t.Errorf("expected subject %q, got %q", subject, data.Subject)
+	}
+}
+
 const (
 	cfbNoStream      = 0xFFFFFFFF // no such sibling, child, or sector
 	cfbEndOfChain    = 0xFFFFFFFE
@@ -119,6 +140,15 @@ func buildCFB(root *cfbEntry) []byte {
 		}
 	}
 	walk(root)
+
+	// A stream with no data is not allocated by either loop below, so it
+	// never lands in a chain. Default it to end-of-chain up front rather than
+	// leaving sector 0 — a real sector number — in the zero value.
+	for _, e := range flat {
+		if e.isStream {
+			e.startSect = cfbEndOfChain
+		}
+	}
 
 	// Small streams go into the mini stream, 64 bytes per mini sector.
 	var miniStream []byte
