@@ -20,12 +20,19 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 	}
 	defer file.Close()
 
-	email, err := Parse(file)
+	parsed, err := Parse(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
 	}
 
-	// Format addresses
+	return buildEmailData(parsed), nil
+}
+
+// buildEmailData flattens a parsed MIME message into EmailData: it resolves
+// cid: references in the body to inline data URIs, lists inline images as
+// attachments as well, expands any winmail.dat container, and flags PEC
+// envelopes.
+func buildEmailData(parsed Email) *EmailData {
 	formatAddress := func(addr []*mail.Address) []string {
 		var result []string
 		for _, a := range addr {
@@ -34,24 +41,20 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		return result
 	}
 
-	// Determine body (prefer HTML)
-	body := email.HTMLBody
+	body := parsed.HTMLBody
 	if body == "" {
-		body = email.TextBody
+		body = parsed.TextBody
 	}
 
-	// Process attachments list and PEC detection
 	var attachments []EmailAttachment
 	var hasDatiCert, hasSmime, hasInnerEmail bool
 
-	// Process embedded files (inline images) -> add to body AND add as attachments
-	for _, ef := range email.EmbeddedFiles {
+	for _, ef := range parsed.EmbeddedFiles {
 		data, err := io.ReadAll(ef.Data)
 		if err != nil {
 			continue
 		}
 
-		// Convert to base64
 		b64 := base64.StdEncoding.EncodeToString(data)
 		mimeType := ef.ContentType
 		if parts := strings.Split(mimeType, ";"); len(parts) > 0 {
@@ -61,34 +64,23 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 			mimeType = "application/octet-stream"
 		}
 
-		// Create data URI
 		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-
-		// Replace cid:reference with data URI in HTML body (case-insensitive).
-		// ef.CID is already trimmed of <>.
 		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
 		body = re.ReplaceAllLiteralString(body, dataURI)
 
-		// Also list inline images as regular attachments, in addition to
-		// inlining them via the data URI substitution above, so callers
-		// that only look at Attachments still see them.
-		filename := embeddedFilename(ef, mimeType)
-
 		attachments = append(attachments, EmailAttachment{
-			Filename:    filename,
+			Filename:    embeddedFilename(ef, mimeType),
 			ContentType: mimeType,
 			Data:        data,
 		})
 	}
 
-	// Process standard attachments
-	for _, att := range email.Attachments {
+	for _, att := range parsed.Attachments {
 		data, err := io.ReadAll(att.Data)
 		if err != nil {
-			continue // Handle error or skip? Skipping for now.
+			continue
 		}
 
-		// PEC Detection Logic
 		filenameLower := strings.ToLower(att.Filename)
 		if filenameLower == "daticert.xml" {
 			hasDatiCert = true
@@ -107,29 +99,25 @@ func ReadEmlFile(filePath string) (*EmailData, error) {
 		})
 	}
 
-	// Expand any TNEF (winmail.dat) attachments into their contained files.
 	attachments = tnef.Expand(attachments)
 
-	isPec := hasDatiCert && hasSmime
-
-	// Format From
 	var from string
-	if len(email.From) > 0 {
-		from = email.From[0].String()
+	if len(parsed.From) > 0 {
+		from = parsed.From[0].String()
 	}
 
 	return &EmailData{
 		From:          ConvertToUTF8(from),
-		To:            formatAddress(email.To),
-		Cc:            formatAddress(email.Cc),
-		Bcc:           formatAddress(email.Bcc),
-		Subject:       ConvertToUTF8(email.Subject),
+		To:            formatAddress(parsed.To),
+		Cc:            formatAddress(parsed.Cc),
+		Bcc:           formatAddress(parsed.Bcc),
+		Subject:       ConvertToUTF8(parsed.Subject),
 		Body:          ConvertToUTF8(body),
 		Attachments:   attachments,
-		IsPec:         isPec,
+		IsPec:         hasDatiCert && hasSmime,
 		HasInnerEmail: hasInnerEmail,
-		Date:          email.Header.Get("Date"),
-	}, nil
+		Date:          parsed.Header.Get("Date"),
+	}
 }
 
 func ReadPecInnerEml(filePath string) (*EmailData, error) {
@@ -139,19 +127,15 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 	}
 	defer file.Close()
 
-	// 1. Parse outer "Envelope"
 	outerEmail, err := Parse(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse outer email: %w", err)
 	}
 
-	// 2. Look for the real content inside postacert.eml
+	// A signed PEC carries the real message in a postacert.eml part.
 	var innerEmailData []byte
 	foundPec := false
-
 	for _, att := range outerEmail.Attachments {
-		// Standard PEC puts the real message in postacert.eml
-		// Using case-insensitive check and substring as per example
 		if strings.Contains(strings.ToLower(att.Filename), "postacert.eml") {
 			data, err := io.ReadAll(att.Data)
 			if err != nil {
@@ -162,111 +146,16 @@ func ReadPecInnerEml(filePath string) (*EmailData, error) {
 			break
 		}
 	}
-
 	if !foundPec {
 		return nil, fmt.Errorf("not a signed PEC or 'postacert.eml' attachment is missing")
 	}
 
-	// 3. Parse the inner EML content
 	innerEmail, err := Parse(bytes.NewReader(innerEmailData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse inner email structure: %w", err)
 	}
 
-	// Helper to format addresses (reused logic pattern from eml_reader.go)
-	formatAddress := func(addr []*mail.Address) []string {
-		var result []string
-		for _, a := range addr {
-			result = append(result, ConvertToUTF8(a.String()))
-		}
-		return result
-	}
-
-	// Determine body (prefer HTML)
-	body := innerEmail.HTMLBody
-	if body == "" {
-		body = innerEmail.TextBody
-	}
-
-	// Process embedded files (inline images) -> replace cid: references in body
-	var attachments []EmailAttachment
-	var hasDatiCert, hasSmime, hasInnerPecEmail bool
-
-	for _, ef := range innerEmail.EmbeddedFiles {
-		data, err := io.ReadAll(ef.Data)
-		if err != nil {
-			continue
-		}
-
-		b64 := base64.StdEncoding.EncodeToString(data)
-		mimeType := ef.ContentType
-		if parts := strings.Split(mimeType, ";"); len(parts) > 0 {
-			mimeType = strings.TrimSpace(parts[0])
-		}
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
-
-		dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
-		body = re.ReplaceAllLiteralString(body, dataURI)
-
-		filename := embeddedFilename(ef, mimeType)
-		attachments = append(attachments, EmailAttachment{
-			Filename:    filename,
-			ContentType: mimeType,
-			Data:        data,
-		})
-	}
-
-	for _, att := range innerEmail.Attachments {
-		data, err := io.ReadAll(att.Data)
-		if err != nil {
-			continue
-		}
-
-		// Check internal flags for the inner email (recursive PEC check?)
-		filenameLower := strings.ToLower(att.Filename)
-		if filenameLower == "daticert.xml" {
-			hasDatiCert = true
-		}
-		if filenameLower == "smime.p7s" {
-			hasSmime = true
-		}
-		if strings.HasSuffix(filenameLower, ".eml") {
-			hasInnerPecEmail = true
-		}
-
-		attachments = append(attachments, EmailAttachment{
-			Filename:    att.Filename,
-			ContentType: att.ContentType,
-			Data:        data,
-		})
-	}
-
-	// Expand any TNEF (winmail.dat) attachments into their contained files.
-	attachments = tnef.Expand(attachments)
-
-	isPec := hasDatiCert && hasSmime
-
-	// Format From
-	var from string
-	if len(innerEmail.From) > 0 {
-		from = innerEmail.From[0].String()
-	}
-
-	return &EmailData{
-		From:          ConvertToUTF8(from),
-		To:            formatAddress(innerEmail.To),
-		Cc:            formatAddress(innerEmail.Cc),
-		Bcc:           formatAddress(innerEmail.Bcc),
-		Subject:       ConvertToUTF8(innerEmail.Subject),
-		Body:          ConvertToUTF8(body),
-		Attachments:   attachments,
-		IsPec:         isPec,
-		HasInnerEmail: hasInnerPecEmail,
-		Date:          innerEmail.Header.Get("Date"),
-	}, nil
+	return buildEmailData(innerEmail), nil
 }
 
 // embeddedFilename returns the best display filename for an embedded file:
