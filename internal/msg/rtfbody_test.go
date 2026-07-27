@@ -1,4 +1,4 @@
-package mailfmt
+package msg
 
 import (
 	"encoding/binary"
@@ -35,9 +35,9 @@ func TestReadMSGInlineImagesE2E(t *testing.T) {
 		t.Skip("set MSG_DEBUG_PATH to run the end-to-end MSG check")
 	}
 
-	data, err := ReadMsgFile(path)
+	data, err := ReadFile(path)
 	if err != nil {
-		t.Fatalf("ReadMsgFile: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
 	if !strings.Contains(data.Body, "<img") {
 		t.Fatal("body has no <img> tags – RTF de-encapsulation did not run")

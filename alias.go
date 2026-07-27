@@ -5,6 +5,7 @@ import (
 
 	"github.com/ffois/mailfmt/internal/email"
 	"github.com/ffois/mailfmt/internal/mimeparse"
+	"github.com/ffois/mailfmt/internal/msg"
 )
 
 // EmailData is the flat representation returned by every reader.
@@ -29,3 +30,9 @@ type EmbeddedFile = mimeparse.EmbeddedFile
 
 // Parse reads a MIME message from r.
 func Parse(r io.Reader) (Email, error) { return mimeparse.Parse(r) }
+
+// ReadMsgFile parses the Outlook MSG file at path.
+func ReadMsgFile(path string) (*EmailData, error) { return msg.ReadFile(path) }
+
+// Read parses an Outlook MSG message from r.
+func Read(r io.ReaderAt) (*EmailData, error) { return msg.Read(r) }

@@ -1,4 +1,4 @@
-package mailfmt
+package msg
 
 import (
 	"bufio"
@@ -109,7 +109,7 @@ type cfbReader struct {
 	miniStream []byte
 }
 
-func ReadMsgFile(path string) (*EmailData, error) {
+func ReadFile(path string) (*email.Data, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func ReadMsgFile(path string) (*EmailData, error) {
 	return Read(f)
 }
 
-func Read(r io.ReaderAt) (*EmailData, error) {
+func Read(r io.ReaderAt) (*email.Data, error) {
 	cfb, err := newCFBReader(r)
 	if err != nil {
 		return nil, err
@@ -412,7 +412,7 @@ func getDirName(entry *directoryEntry) string {
 	return string(runes)
 }
 
-func parseMessage(cfb *cfbReader) (*EmailData, error) {
+func parseMessage(cfb *cfbReader) (*email.Data, error) {
 	if cfb.root == nil {
 		return nil, errors.New("no root directory")
 	}
@@ -431,25 +431,25 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 		}
 	}
 
-	email := &EmailData{}
+	data := &email.Data{}
 
-	email.Subject = getPropString(props, pidTagSubject)
-	if email.Subject == "" {
-		email.Subject = getPropString(props, pidTagConversationTopic)
+	data.Subject = getPropString(props, pidTagSubject)
+	if data.Subject == "" {
+		data.Subject = getPropString(props, pidTagConversationTopic)
 	}
 
-	email.Body = getPropString(props, pidTagBodyHTML)
-	if email.Body == "" {
-		email.Body = getPropBinary(props, pidTagBodyHTML)
+	data.Body = getPropString(props, pidTagBodyHTML)
+	if data.Body == "" {
+		data.Body = getPropBinary(props, pidTagBodyHTML)
 	}
-	if email.Body == "" {
+	if data.Body == "" {
 		// No plain HTML body: Outlook commonly stores HTML mail as compressed
 		// RTF with the original markup encapsulated. Recovering it keeps the
 		// inline cid: image references that are substituted below.
-		email.Body = htmlFromCompressedRTF(props)
+		data.Body = htmlFromCompressedRTF(props)
 	}
-	if email.Body == "" {
-		email.Body = textToHTML(getPropString(props, pidTagBody))
+	if data.Body == "" {
+		data.Body = textToHTML(getPropString(props, pidTagBody))
 	}
 
 	from := getPropString(props, pidTagSenderName)
@@ -461,18 +461,18 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 		fromEmail = getPropString(props, pidTagSentRepresentingAddr)
 	}
 	if fromEmail != "" {
-		email.From = fmt.Sprintf("%s <%s>", from, fromEmail)
+		data.From = fmt.Sprintf("%s <%s>", from, fromEmail)
 	} else {
-		email.From = from
+		data.From = from
 	}
 
-	email.To = splitRecipients(getPropString(props, pidTagDisplayTo))
-	email.Cc = splitRecipients(getPropString(props, pidTagDisplayCc))
-	email.Bcc = splitRecipients(getPropString(props, pidTagDisplayBcc))
+	data.To = splitRecipients(getPropString(props, pidTagDisplayTo))
+	data.Cc = splitRecipients(getPropString(props, pidTagDisplayCc))
+	data.Bcc = splitRecipients(getPropString(props, pidTagDisplayBcc))
 
 	msgClass := getPropString(props, pidTagMessageClass)
-	email.IsPec = strings.Contains(strings.ToLower(msgClass), "smime") ||
-		strings.Contains(strings.ToLower(email.Subject), "posta certificata")
+	data.IsPec = strings.Contains(strings.ToLower(msgClass), "smime") ||
+		strings.Contains(strings.ToLower(data.Subject), "posta certificata")
 
 	// cid -> data URI map for inline image substitution
 	cidToDataURI := make(map[string]string)
@@ -484,8 +484,8 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 				if strings.HasPrefix(att.ContentType, "multipart/") {
 					innerAtts := extractMIMEAttachments(att.Data)
 					if len(innerAtts) > 0 {
-						email.HasInnerEmail = true
-						email.Attachments = append(email.Attachments, innerAtts...)
+						data.HasInnerEmail = true
+						data.Attachments = append(data.Attachments, innerAtts...)
 					}
 				} else {
 					if cid != "" {
@@ -499,7 +499,7 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 						b64 := base64.StdEncoding.EncodeToString(att.Data)
 						cidToDataURI[cid] = fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
 					}
-					email.Attachments = append(email.Attachments, *att)
+					data.Attachments = append(data.Attachments, *att)
 				}
 			}
 		}
@@ -508,10 +508,10 @@ func parseMessage(cfb *cfbReader) (*EmailData, error) {
 	// Replace cid: references in the HTML body with data URIs
 	for cid, dataURI := range cidToDataURI {
 		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+cid))
-		email.Body = re.ReplaceAllLiteralString(email.Body, dataURI)
+		data.Body = re.ReplaceAllLiteralString(data.Body, dataURI)
 	}
 
-	return email, nil
+	return data, nil
 }
 
 func parsePropertyName(name string) (uint32, uint16) {
@@ -541,7 +541,7 @@ func getPropString(props map[uint32][]byte, propID uint32) string {
 
 func getPropBinary(props map[uint32][]byte, propID uint32) string {
 	if data, ok := props[(propID<<16)|propTypeBinary]; ok {
-		return ConvertToUTF8(string(data))
+		return email.ConvertToUTF8(string(data))
 	}
 	return ""
 }
@@ -587,8 +587,8 @@ func splitRecipients(s string) []string {
 	return result
 }
 
-func parseAttachment(cfb *cfbReader, node *dirNode) (*EmailAttachment, string) {
-	att := &EmailAttachment{}
+func parseAttachment(cfb *cfbReader, node *dirNode) (*email.Attachment, string) {
+	att := &email.Attachment{}
 	var contentId string
 
 	for _, child := range node.Children {
@@ -635,7 +635,7 @@ func decodePropertyString(data []byte, propType uint16) string {
 	return ""
 }
 
-func extractMIMEAttachments(data []byte) []EmailAttachment {
+func extractMIMEAttachments(data []byte) []email.Attachment {
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
 
@@ -662,8 +662,8 @@ func extractMIMEAttachments(data []byte) []EmailAttachment {
 	return parseMIMEParts(body, boundary)
 }
 
-func parseMIMEParts(body []byte, boundary string) []EmailAttachment {
-	var attachments []EmailAttachment
+func parseMIMEParts(body []byte, boundary string) []email.Attachment {
+	var attachments []email.Attachment
 	mr := multipart.NewReader(bytes.NewReader(body), boundary)
 
 	for {
@@ -692,7 +692,7 @@ func parseMIMEParts(body []byte, boundary string) []EmailAttachment {
 			if filename == "" {
 				filename = "email.eml"
 			}
-			attachments = append(attachments, EmailAttachment{
+			attachments = append(attachments, email.Attachment{
 				Filename:    filename,
 				ContentType: "message/rfc822",
 				Data:        partBody,
@@ -709,7 +709,7 @@ func parseMIMEParts(body []byte, boundary string) []EmailAttachment {
 
 		if filename != "" {
 			decoded := decodeBody(partBody, encoding)
-			attachments = append(attachments, EmailAttachment{
+			attachments = append(attachments, email.Attachment{
 				Filename:    filename,
 				ContentType: mediaType,
 				Data:        decoded,
@@ -720,7 +720,7 @@ func parseMIMEParts(body []byte, boundary string) []EmailAttachment {
 	return attachments
 }
 
-func extractFromRFC822(data []byte) []EmailAttachment {
+func extractFromRFC822(data []byte) []email.Attachment {
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
 

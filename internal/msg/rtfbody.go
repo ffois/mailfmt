@@ -1,4 +1,4 @@
-package mailfmt
+package msg
 
 import (
 	"github.com/ffois/mailfmt/internal/rtf"
