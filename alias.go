@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/ffois/mailfmt/internal/email"
+	"github.com/ffois/mailfmt/internal/eml"
 	"github.com/ffois/mailfmt/internal/mimeparse"
 	"github.com/ffois/mailfmt/internal/msg"
 )
@@ -30,6 +31,9 @@ type EmbeddedFile = mimeparse.EmbeddedFile
 
 // Parse reads a MIME message from r.
 func Parse(r io.Reader) (Email, error) { return mimeparse.Parse(r) }
+
+// ReadEmlFile parses the MIME message at path.
+func ReadEmlFile(path string) (*EmailData, error) { return eml.ReadFile(path) }
 
 // ReadMsgFile parses the Outlook MSG file at path.
 func ReadMsgFile(path string) (*EmailData, error) { return msg.ReadFile(path) }

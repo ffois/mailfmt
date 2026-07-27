@@ -1,7 +1,6 @@
-package mailfmt
+package eml
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -10,33 +9,36 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ffois/mailfmt/internal/email"
+	"github.com/ffois/mailfmt/internal/mimeparse"
 	"github.com/ffois/mailfmt/internal/tnef"
 )
 
-func ReadEmlFile(filePath string) (*EmailData, error) {
+// ReadFile parses the MIME message at path.
+func ReadFile(filePath string) (*email.Data, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	parsed, err := Parse(file)
+	parsed, err := mimeparse.Parse(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
 	}
 
-	return buildEmailData(parsed), nil
+	return Build(parsed), nil
 }
 
-// buildEmailData flattens a parsed MIME message into EmailData: it resolves
+// Build flattens a parsed MIME message into email.Data: it resolves
 // cid: references in the body to inline data URIs, lists inline images as
 // attachments as well, expands any winmail.dat container, and flags PEC
 // envelopes.
-func buildEmailData(parsed Email) *EmailData {
+func Build(parsed mimeparse.Email) *email.Data {
 	formatAddress := func(addr []*mail.Address) []string {
 		var result []string
 		for _, a := range addr {
-			result = append(result, ConvertToUTF8(a.String()))
+			result = append(result, email.ConvertToUTF8(a.String()))
 		}
 		return result
 	}
@@ -46,7 +48,7 @@ func buildEmailData(parsed Email) *EmailData {
 		body = parsed.TextBody
 	}
 
-	var attachments []EmailAttachment
+	var attachments []email.Attachment
 	var hasDatiCert, hasSmime, hasInnerEmail bool
 
 	for _, ef := range parsed.EmbeddedFiles {
@@ -68,7 +70,7 @@ func buildEmailData(parsed Email) *EmailData {
 		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+ef.CID))
 		body = re.ReplaceAllLiteralString(body, dataURI)
 
-		attachments = append(attachments, EmailAttachment{
+		attachments = append(attachments, email.Attachment{
 			Filename:    embeddedFilename(ef, mimeType),
 			ContentType: mimeType,
 			Data:        data,
@@ -92,7 +94,7 @@ func buildEmailData(parsed Email) *EmailData {
 			hasInnerEmail = true
 		}
 
-		attachments = append(attachments, EmailAttachment{
+		attachments = append(attachments, email.Attachment{
 			Filename:    att.Filename,
 			ContentType: att.ContentType,
 			Data:        data,
@@ -106,13 +108,13 @@ func buildEmailData(parsed Email) *EmailData {
 		from = parsed.From[0].String()
 	}
 
-	return &EmailData{
-		From:          ConvertToUTF8(from),
+	return &email.Data{
+		From:          email.ConvertToUTF8(from),
 		To:            formatAddress(parsed.To),
 		Cc:            formatAddress(parsed.Cc),
 		Bcc:           formatAddress(parsed.Bcc),
-		Subject:       ConvertToUTF8(parsed.Subject),
-		Body:          ConvertToUTF8(body),
+		Subject:       email.ConvertToUTF8(parsed.Subject),
+		Body:          email.ConvertToUTF8(body),
 		Attachments:   attachments,
 		IsPec:         hasDatiCert && hasSmime,
 		HasInnerEmail: hasInnerEmail,
@@ -120,50 +122,12 @@ func buildEmailData(parsed Email) *EmailData {
 	}
 }
 
-func ReadPecInnerEml(filePath string) (*EmailData, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	outerEmail, err := Parse(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse outer email: %w", err)
-	}
-
-	// A signed PEC carries the real message in a postacert.eml part.
-	var innerEmailData []byte
-	foundPec := false
-	for _, att := range outerEmail.Attachments {
-		if strings.Contains(strings.ToLower(att.Filename), "postacert.eml") {
-			data, err := io.ReadAll(att.Data)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read inner email content: %w", err)
-			}
-			innerEmailData = data
-			foundPec = true
-			break
-		}
-	}
-	if !foundPec {
-		return nil, fmt.Errorf("not a signed PEC or 'postacert.eml' attachment is missing")
-	}
-
-	innerEmail, err := Parse(bytes.NewReader(innerEmailData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse inner email structure: %w", err)
-	}
-
-	return buildEmailData(innerEmail), nil
-}
-
 // embeddedFilename returns the best display filename for an embedded file:
 // the filename declared by the MIME part when present, otherwise a name
 // derived from the Content-ID. Content-IDs are not real filenames (e.g.
 // "c181c7cd@yahoo.com"), so in that case an extension matching the MIME type
 // is always appended unless the name already ends with it.
-func embeddedFilename(ef EmbeddedFile, mimeType string) string {
+func embeddedFilename(ef mimeparse.EmbeddedFile, mimeType string) string {
 	if ef.Filename != "" {
 		return ef.Filename
 	}
