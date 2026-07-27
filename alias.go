@@ -1,7 +1,10 @@
 package mailfmt
 
 import (
+	"io"
+
 	"github.com/ffois/mailfmt/internal/email"
+	"github.com/ffois/mailfmt/internal/mimeparse"
 )
 
 // EmailData is the flat representation returned by every reader.
@@ -13,3 +16,16 @@ type EmailAttachment = email.Attachment
 // ConvertToUTF8 returns s unchanged if it is already valid UTF-8, otherwise
 // decodes it from Windows-1252.
 func ConvertToUTF8(s string) string { return email.ConvertToUTF8(s) }
+
+// Email is a parsed MIME message with all RFC5322 headers.
+type Email = mimeparse.Email
+
+// Attachment is an attachment part of a parsed MIME message.
+type Attachment = mimeparse.Attachment
+
+// EmbeddedFile is an inline part of a parsed MIME message, referenced from
+// the body via its Content-ID.
+type EmbeddedFile = mimeparse.EmbeddedFile
+
+// Parse reads a MIME message from r.
+func Parse(r io.Reader) (Email, error) { return mimeparse.Parse(r) }
