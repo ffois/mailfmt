@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Scratch workspace for subagent-driven plan execution
+.superpowers/
