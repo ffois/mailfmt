@@ -27,7 +27,47 @@ const (
 	noStream           = 0xFFFFFFFF
 	difatInHeader      = 109
 	directoryEntrySize = 128
+
+	// maxPrealloc caps how much memory a declared stream size may reserve up
+	// front. Every size this reader acts on comes out of the file itself and is
+	// therefore attacker-controlled: a directory entry claiming a StreamSize of
+	// 1<<62 makes an unclamped make() panic with "makeslice: cap out of range",
+	// and a merely large one exhausts memory before a single byte is read.
+	// Streams bigger than the cap still read correctly - append grows the slice
+	// as sectors arrive, which the real file length bounds.
+	maxPrealloc = 8 << 20
+
+	// maxMIMEDepth bounds the nesting of multipart parts inside a MSG
+	// attachment. parseMIMEParts recurses into nested multiparts and into
+	// message/rfc822 payloads, both of which an attacker can nest arbitrarily.
+	maxMIMEDepth = 20
 )
+
+// prealloc returns an empty slice whose capacity is size, clamped to
+// maxPrealloc. See that constant for why the clamp is not optional.
+func prealloc(size uint64) []byte {
+	if size > maxPrealloc {
+		size = maxPrealloc
+	}
+	return make([]byte, 0, size)
+}
+
+// chainWalker follows a FAT or mini-FAT sector chain, refusing to visit the
+// same sector twice. A crafted file can point a chain back at itself; without
+// this guard the walk never terminates and one malformed message hangs the
+// calling process. A cycle is not recoverable the way a panic is, so it has to
+// be prevented rather than caught.
+type chainWalker map[uint32]bool
+
+// visit reports whether sector is a new link in the chain. It returns false
+// once the chain either ends, runs past the last real sector, or loops.
+func (w chainWalker) visit(sector uint32) bool {
+	if sector >= maxRegularSector || w[sector] {
+		return false
+	}
+	w[sector] = true
+	return true
+}
 
 const (
 	pidTagSubject              = 0x0037
@@ -149,6 +189,19 @@ func newCFBReader(r io.ReaderAt) (*cfbReader, error) {
 		return nil, errors.New("invalid MSG file")
 	}
 
+	// [MS-CFB] allows exactly two sector sizes, and exactly one mini sector
+	// size. Rejecting everything else here is worth more than the validation
+	// itself: a SectorShift below 2 gives a sector smaller than a FAT entry,
+	// which makes readFAT compute entriesPerSector = -1 and panic on a negative
+	// slice index, and an inflated MiniSectorShift overflows the offset
+	// arithmetic in readMiniStreamData. One check at the header closes both.
+	if cfb.header.SectorShift != 9 && cfb.header.SectorShift != 12 {
+		return nil, fmt.Errorf("msg: invalid sector shift %d", cfb.header.SectorShift)
+	}
+	if cfb.header.MiniSectorShift != 6 {
+		return nil, fmt.Errorf("msg: invalid mini sector shift %d", cfb.header.MiniSectorShift)
+	}
+
 	cfb.sectorSize = 1 << cfb.header.SectorShift
 
 	if err := cfb.readFAT(); err != nil {
@@ -189,7 +242,8 @@ func (cfb *cfbReader) readFAT() error {
 
 	if cfb.header.DIFATSectors > 0 && cfb.header.FirstDIFATSector < maxRegularSector {
 		difatSector := cfb.header.FirstDIFATSector
-		for i := uint32(0); i < cfb.header.DIFATSectors && difatSector < maxRegularSector; i++ {
+		chain := chainWalker{}
+		for i := uint32(0); i < cfb.header.DIFATSectors && chain.visit(difatSector); i++ {
 			data, err := cfb.readSector(difatSector)
 			if err != nil {
 				return err
@@ -222,8 +276,9 @@ func (cfb *cfbReader) readFAT() error {
 func (cfb *cfbReader) readDirectories() error {
 	entriesPerSector := cfb.sectorSize / directoryEntrySize
 	sector := cfb.header.FirstDirectorySector
+	chain := chainWalker{}
 
-	for sector < maxRegularSector {
+	for chain.visit(sector) {
 		data, err := cfb.readSector(sector)
 		if err != nil {
 			return err
@@ -265,31 +320,58 @@ func (cfb *cfbReader) buildTree() {
 	}
 }
 
+// collectChildren appends every node of a directory entry's red-black sibling
+// tree to parent, in the in-order sequence the format defines.
+//
+// The walk is iterative and keeps a visited set on purpose. An entry in a
+// crafted file can name itself as its own left sibling, or two entries can
+// point at each other; recursion then descends until the goroutine stack is
+// exhausted, which no recover can catch.
 func (cfb *cfbReader) collectChildren(parent *dirNode, startIdx int) {
-	var traverse func(idx int)
-	traverse = func(idx int) {
-		if idx < 0 || idx >= len(cfb.dirEntries) || uint32(idx) == noStream {
-			return
+	type frame struct {
+		idx  int
+		emit bool // the node's left subtree is done; append it now
+	}
+
+	visited := make(map[int]bool, len(cfb.dirEntries))
+	stack := []frame{{idx: startIdx}}
+
+	for len(stack) > 0 {
+		f := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if f.idx < 0 || f.idx >= len(cfb.dirEntries) || uint32(f.idx) == noStream {
+			continue
 		}
-		child, ok := cfb.nodesByIdx[idx]
+		child, ok := cfb.nodesByIdx[f.idx]
 		if !ok {
-			return
+			continue
 		}
-		if child.Entry.LeftSiblingID != noStream {
-			traverse(int(child.Entry.LeftSiblingID))
+		if f.emit {
+			parent.Children = append(parent.Children, child)
+			continue
 		}
-		parent.Children = append(parent.Children, child)
+		if visited[f.idx] {
+			continue
+		}
+		visited[f.idx] = true
+
+		// Pushed in reverse, so they pop as left, self, right.
 		if child.Entry.RightSiblingID != noStream {
-			traverse(int(child.Entry.RightSiblingID))
+			stack = append(stack, frame{idx: int(child.Entry.RightSiblingID)})
+		}
+		stack = append(stack, frame{idx: f.idx, emit: true})
+		if child.Entry.LeftSiblingID != noStream {
+			stack = append(stack, frame{idx: int(child.Entry.LeftSiblingID)})
 		}
 	}
-	traverse(startIdx)
 }
 
 func (cfb *cfbReader) readMiniFAT() error {
 	entriesPerSector := cfb.sectorSize / 4
 	sector := cfb.header.FirstMiniFATSector
-	for sector < maxRegularSector {
+	chain := chainWalker{}
+	for chain.visit(sector) {
 		data, err := cfb.readSector(sector)
 		if err != nil {
 			return err
@@ -307,11 +389,12 @@ func (cfb *cfbReader) readMiniFAT() error {
 
 func (cfb *cfbReader) readMiniStream() error {
 	root := cfb.dirEntries[0]
-	cfb.miniStream = make([]byte, 0, root.StreamSize)
+	cfb.miniStream = prealloc(root.StreamSize)
 	sector := root.StartingSectorLoc
 	remaining := int64(root.StreamSize)
+	chain := chainWalker{}
 
-	for sector < maxRegularSector && remaining > 0 {
+	for remaining > 0 && chain.visit(sector) {
 		data, err := cfb.readSector(sector)
 		if err != nil {
 			return err
@@ -342,11 +425,12 @@ func (cfb *cfbReader) readStream(entry *directoryEntry) ([]byte, error) {
 
 func (cfb *cfbReader) readMiniStreamData(entry *directoryEntry) ([]byte, error) {
 	miniSectorSize := 1 << cfb.header.MiniSectorShift
-	data := make([]byte, 0, entry.StreamSize)
+	data := prealloc(entry.StreamSize)
 	sector := entry.StartingSectorLoc
 	remaining := int64(entry.StreamSize)
+	chain := chainWalker{}
 
-	for sector < maxRegularSector && remaining > 0 {
+	for remaining > 0 && chain.visit(sector) {
 		offset := int(sector) * miniSectorSize
 		if offset >= len(cfb.miniStream) {
 			break
@@ -370,11 +454,12 @@ func (cfb *cfbReader) readMiniStreamData(entry *directoryEntry) ([]byte, error) 
 }
 
 func (cfb *cfbReader) readRegularStream(entry *directoryEntry) ([]byte, error) {
-	data := make([]byte, 0, entry.StreamSize)
+	data := prealloc(entry.StreamSize)
 	sector := entry.StartingSectorLoc
 	remaining := int64(entry.StreamSize)
+	chain := chainWalker{}
 
-	for sector < maxRegularSector && remaining > 0 {
+	for remaining > 0 && chain.visit(sector) {
 		sectorData, err := cfb.readSector(sector)
 		if err != nil {
 			return nil, err
@@ -659,10 +744,18 @@ func extractMIMEAttachments(data []byte) []email.Attachment {
 	}
 
 	body, _ := io.ReadAll(reader)
-	return parseMIMEParts(body, boundary)
+	return parseMIMEParts(body, boundary, 0)
 }
 
-func parseMIMEParts(body []byte, boundary string) []email.Attachment {
+// parseMIMEParts collects the attachments of a multipart body. depth bounds the
+// two ways it re-enters itself - a nested multipart part, and a message/rfc822
+// payload that is itself multipart - both of which an attacker nests as deeply
+// as they like inside a single .msg attachment.
+func parseMIMEParts(body []byte, boundary string, depth int) []email.Attachment {
+	if depth > maxMIMEDepth {
+		return nil
+	}
+
 	var attachments []email.Attachment
 	mr := multipart.NewReader(bytes.NewReader(body), boundary)
 
@@ -682,7 +775,7 @@ func parseMIMEParts(body []byte, boundary string) []email.Attachment {
 
 		if strings.HasPrefix(mediaType, "multipart/") {
 			if b := params["boundary"]; b != "" {
-				attachments = append(attachments, parseMIMEParts(partBody, b)...)
+				attachments = append(attachments, parseMIMEParts(partBody, b, depth+1)...)
 			}
 			continue
 		}
@@ -697,7 +790,7 @@ func parseMIMEParts(body []byte, boundary string) []email.Attachment {
 				ContentType: "message/rfc822",
 				Data:        partBody,
 			})
-			innerAtts := extractFromRFC822(partBody)
+			innerAtts := extractFromRFC822(partBody, depth+1)
 			attachments = append(attachments, innerAtts...)
 			continue
 		}
@@ -720,7 +813,7 @@ func parseMIMEParts(body []byte, boundary string) []email.Attachment {
 	return attachments
 }
 
-func extractFromRFC822(data []byte) []email.Attachment {
+func extractFromRFC822(data []byte, depth int) []email.Attachment {
 	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
 
@@ -744,7 +837,7 @@ func extractFromRFC822(data []byte) []email.Attachment {
 	}
 
 	body, _ := io.ReadAll(reader)
-	return parseMIMEParts(body, boundary)
+	return parseMIMEParts(body, boundary, depth)
 }
 
 func getFilename(header textproto.MIMEHeader, params map[string]string) string {
