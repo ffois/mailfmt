@@ -1,6 +1,7 @@
 package rtf
 
 import (
+	"bytes"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -59,5 +60,88 @@ func TestDecompressRTFUncompressed(t *testing.T) {
 	}
 	if string(got) != string(payload) {
 		t.Fatalf("uncompressed passthrough mismatch:\n got=%q\nwant=%q", got, payload)
+	}
+}
+
+// compressRTF produces a valid LZFu stream that uses literals only. The format
+// allows it: a control byte with a zero bit means "the next byte is a literal",
+// so a stream of zero control bytes is a correct, if useless, encoding. That is
+// enough to exercise the decompressor's framing and dictionary handling.
+func compressRTF(payload []byte) []byte {
+	var body []byte
+	for i := 0; i < len(payload); i += 8 {
+		body = append(body, 0x00) // eight literals follow
+		end := i + 8
+		if end > len(payload) {
+			end = len(payload)
+		}
+		body = append(body, payload[i:end]...)
+	}
+
+	out := make([]byte, 16+len(body))
+	binary.LittleEndian.PutUint32(out[0:], uint32(len(body)+12)) // compSize
+	binary.LittleEndian.PutUint32(out[4:], uint32(len(payload))) // rawSize
+	binary.LittleEndian.PutUint32(out[8:], RTFCompressedMagic)
+	binary.LittleEndian.PutUint32(out[12:], 0) // CRC, not checked
+	copy(out[16:], body)
+	return out
+}
+
+// The compressed path is the one Outlook actually uses. A round trip through
+// it must give back exactly the original RTF.
+func TestDecompressRTFCompressed(t *testing.T) {
+	payload := []byte(`{\rtf1\ansi\fromhtml1{\*\htmltag <p>ciao</p>}}`)
+
+	got, err := Decompress(compressRTF(payload))
+	if err != nil {
+		t.Fatalf("Decompress: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("round trip mismatch:\n got=%q\nwant=%q", got, payload)
+	}
+}
+
+// A stream shorter than the 16-byte header cannot even be parsed for
+// compSize/rawSize/compType, so it must be rejected outright rather than
+// panicking on an out-of-range slice.
+func TestDecompressRTFTruncated(t *testing.T) {
+	full := compressRTF([]byte(`{\rtf1\fromhtml1 testo}`))
+
+	if _, err := Decompress(full[:8]); err == nil {
+		t.Error("expected an error for a stream cut inside the header, got nil")
+	}
+}
+
+// Unlike a truncated header, a body cut mid-token gives Decompress no way to
+// tell "truncated" apart from "legitimately ends here" (the control-byte loop
+// carries no separate length field of its own, only compSize/rawSize in the
+// header, and running out of source bytes mid-literal or mid-back-reference
+// is the same code path as a clean end of stream). So this must not panic or
+// fabricate trailing bytes: it has to return exactly the prefix it managed to
+// decode, with a nil error, rather than the full original payload.
+func TestDecompressRTFBodyCutShort(t *testing.T) {
+	payload := []byte(`{\rtf1\fromhtml1 testo}`)
+	full := compressRTF(payload)
+
+	got, err := Decompress(full[:len(full)-4])
+	if err != nil {
+		t.Fatalf("Decompress: %v", err)
+	}
+	if len(got) == 0 || len(got) >= len(payload) {
+		t.Fatalf("expected a non-empty partial result shorter than the original payload (%d bytes), got %d bytes: %q", len(payload), len(got), got)
+	}
+	if !bytes.Equal(payload[:len(got)], got) {
+		t.Fatalf("partial result is not a prefix of the original payload:\n got=%q\nwant prefix of=%q", got, payload)
+	}
+}
+
+// Only RTF marked \fromhtml carries HTML. Genuine RTF must be reported as
+// such so the caller falls back to the plain-text body.
+func TestIsEncapsulatedHTML(t *testing.T) {
+	if !IsEncapsulatedHTML([]byte(`{\rtf1\ansi\fromhtml1{\*\htmltag <p>}}`)) {
+		t.Error("encapsulated HTML was not recognised")
+	}
+	if IsEncapsulatedHTML([]byte(`{\rtf1\ansi\pard Testo normale.\par}`)) {
+		t.Error("genuine RTF was recognised as encapsulated HTML")
 	}
 }
