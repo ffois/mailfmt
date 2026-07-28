@@ -3,6 +3,7 @@ package rtf
 import (
 	"bytes"
 	"encoding/binary"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,33 @@ func TestDecompressRTFBodyCutShort(t *testing.T) {
 	}
 	if !bytes.Equal(payload[:len(got)], got) {
 		t.Fatalf("partial result is not a prefix of the original payload:\n got=%q\nwant prefix of=%q", got, payload)
+	}
+}
+
+// rawSize is a 4-byte field the sender writes, and nothing downstream of it is
+// checked against the payload that follows. A tiny stream claiming to expand to
+// 4 GiB must not be taken at its word: the decompressed size the caller gets
+// has to come from the bytes actually decoded, and the memory reserved has to
+// stay proportional to the input rather than to the claim.
+func TestDecompressRTFIgnoresInflatedRawSize(t *testing.T) {
+	stream := compressRTF([]byte(`{\rtf1\fromhtml1 x}`))
+	binary.LittleEndian.PutUint32(stream[4:8], 0xFFFFFFFF)
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	got, err := Decompress(stream)
+	if err != nil {
+		t.Fatalf("Decompress: %v", err)
+	}
+
+	runtime.ReadMemStats(&after)
+
+	if len(got) > len(stream)*17 {
+		t.Fatalf("decoded %d bytes from a %d-byte stream, more than LZFu can expand to", len(got), len(stream))
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 16<<20 {
+		t.Fatalf("allocated %d bytes decompressing a %d-byte stream: the declared rawSize is being trusted", allocated, len(stream))
 	}
 }
 

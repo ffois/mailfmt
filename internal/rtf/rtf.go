@@ -83,7 +83,17 @@ func Decompress(data []byte) ([]byte, error) {
 
 	dict := make([]byte, 4096)
 	wp := copy(dict, rtfDictInit) // write pointer starts past the preload (207)
-	out := make([]byte, 0, rawSize)
+	// rawSize is a 4-byte field read straight out of the stream, so a ~20-byte
+	// PidTagRtfCompressed payload can declare 0xFFFFFFFF and reserve 4 GiB
+	// before decompression starts. Cap the reservation at what the payload could
+	// physically expand to - a control byte followed by eight back-references of
+	// 17 bytes is 136 output bytes per 17 input bytes, so 17x is the ceiling -
+	// and let append grow past it if the stream really is that large.
+	capHint := uint64(rawSize)
+	if maxExpansion := uint64(len(src)) * 17; capHint > maxExpansion {
+		capHint = maxExpansion
+	}
+	out := make([]byte, 0, capHint)
 
 	i := 0
 	for i < len(src) {
