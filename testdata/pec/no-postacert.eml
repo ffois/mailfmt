@@ -1,0 +1,37 @@
+From: posta-certificata@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: POSTA CERTIFICATA: consegna (fixture senza postacert.eml)
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="pecbound-nopostacert-0000001"
+
+--pecbound-nopostacert-0000001
+Content-Type: text/plain; charset=utf-8
+
+Messaggio di posta certificata senza l'allegato postacert.eml: la
+riga precedente serve a verificare il fallback su EML semplice.
+--pecbound-nopostacert-0000001
+Content-Type: application/xml; charset=UTF-8; name=daticert.xml
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: attachment; filename="daticert.xml"
+
+<?xml version=3D"1.0" encoding=3D"UTF-8"?>
+<postacert>
+  <intestazione>
+    <mittente>mittente@pec-esempio.it</mittente>
+    <destinatari tipo=3D"certificato">destinatario@pec-esempio.it</destinatari>
+    <risposte>mittente@pec-esempio.it</risposte>
+    <oggetto>Pratica di esempio</oggetto>
+  </intestazione>
+  <dati>
+    <gestore-emittente>Gestore PEC di Esempio</gestore-emittente>
+    <data zona=3D"+0100">
+      <giorno>27/07/2026</giorno>
+      <ora>10:00:00</ora>
+    </data>
+    <identificativo>opec0000.20260727100000.00000.000.0.00@pec-esempio.it</identificativo>
+    <msgid>&lt;0000000000.00000.0000000000@pec-esempio.it&gt;</msgid>
+    <tipo>certificazione</tipo>
+  </dati>
+</postacert>
+
+--pecbound-nopostacert-0000001--

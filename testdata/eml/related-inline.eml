@@ -1,0 +1,30 @@
+From: "Reparto Esempio" <reparto@example-ospedale.it>
+To: paziente@example.it
+Subject: Richiesta visita specialistica di esempio
+Content-Type: multipart/related; boundary="000000000000ce11dc064996ad16"
+MIME-Version: 1.0
+
+--000000000000ce11dc064996ad16
+Content-Type: multipart/alternative; boundary="000000000000ce11db064996ad15"
+
+--000000000000ce11db064996ad15
+Content-Type: text/plain; charset="UTF-8"
+
+In allegato la richiesta di visita specialistica, vedi immagine allegata.
+
+--000000000000ce11db064996ad15
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"auto"><div><img src=3D"cid:ii_00000000000000000001" style=3D"max-width:1=
+00%"></div></div>
+
+--000000000000ce11db064996ad15--
+--000000000000ce11dc064996ad16
+Content-Type: image/jpeg; name="richiesta-fake.jpeg"
+Content-Disposition: inline; filename="richiesta-fake.jpeg"
+Content-Transfer-Encoding: base64
+Content-ID: <ii_00000000000000000001>
+
+RkFLRUlOTElORUlNQUdFQllURVM=
+--000000000000ce11dc064996ad16--

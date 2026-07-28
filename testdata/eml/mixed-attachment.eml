@@ -1,0 +1,35 @@
+From: "Scansioni" <scansioni@example.it>
+To: destinatario@example.it
+Subject: Scansione-Esempio 01-01-2026 09.00 e altri 1 documenti.pdf
+Content-Type: multipart/mixed; boundary="0000000000009b111506249645a2"
+MIME-Version: 1.0
+
+--0000000000009b111506249645a2
+Content-Type: multipart/alternative; boundary="0000000000009b111306249645a0"
+
+--0000000000009b111306249645a0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+In allegato trovi i documenti scansionati.
+
+--0000000000009b111306249645a0
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">In allegato trovi i documenti scansionati.</div>
+
+--0000000000009b111306249645a0--
+--0000000000009b111506249645a2
+Content-Type: application/pdf; name="Scansione-Esempio 01-01-2026 09.00.pdf"
+Content-Disposition: attachment; filename="Scansione-Esempio 01-01-2026 09.00.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQgRkFLRSBDT05URU5UIE9ORQolJUVPRg==
+--0000000000009b111506249645a2
+Content-Type: application/pdf; name="Scansione-Esempio 01-01-2026 09.01.pdf"
+Content-Disposition: attachment; filename="Scansione-Esempio 01-01-2026 09.01.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQgRkFLRSBDT05URU5UIFRXTwolJUVPRg==
+--0000000000009b111506249645a2--

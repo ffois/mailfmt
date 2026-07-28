@@ -1,0 +1,20 @@
+From: mittente@example.it
+To: destinatario@example.it
+Subject: Messaggio di esempio con allegato TNEF
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_tnef_mixed_0001"
+
+------=_tnef_mixed_0001
+Content-Type: text/plain; charset=utf-8
+
+Messaggio di esempio con un allegato winmail.dat in formato TNEF.
+------=_tnef_mixed_0001
+Content-Type: application/ms-tnef; name="winmail.dat"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="winmail.dat"
+
+eJ8+IjQSAQaQAwAEAAAAAAABAAEAAQiAAgAJAAAASVBNLk5vdGUAqgICApAGAA4AAAAAAAAAAAAA
+AAAAAAAAAAAAAhCAAgAJAAAAbm90YS50eHQAQAMCD4AGACQAAABDb250ZW51dG8gZGkgZXNlbXBp
+byBwZXIgbm90YS50eHQuDQrKDAICkAYADgAAAAAAAAAAAAAAAAAAAAAAAAACEIACAAkAAABmb3Rv
+LnR4dABGAwIPgAYAJAAAAFNlZ25hcG9zdG8gcGVyIHVuIGZpbGUgZGkgZXNlbXBpby4NCpEM
+------=_tnef_mixed_0001--

@@ -1,0 +1,36 @@
+From: "Assicurazioni Esempio SPA" <sinistri@example-assicurazioni.it>
+To: assicurato@example.it
+Subject: I: Num. polizza 00000000000 Num. Sinistro 2026.00ESM.000000
+Content-Type: multipart/mixed; boundary="----=_mixed_0000000000000001"
+MIME-Version: 1.0
+
+------=_mixed_0000000000000001
+Content-Type: multipart/alternative; boundary="----=_alt_00000000000000001"
+
+------=_alt_00000000000000001
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Corpo testuale di riserva: questo testo non deve comparire se il
+client sa leggere la parte HTML.
+
+------=_alt_00000000000000001
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Corpo <b>HTML</b>: questa parte deve vincere sul testo semplice.</p></body></html>
+
+------=_alt_00000000000000001--
+------=_mixed_0000000000000001
+Content-Type: image/jpeg; name="foto-fake-0001.jpg"
+Content-Disposition: attachment; filename="foto-fake-0001.jpg"
+Content-Transfer-Encoding: base64
+
+RkFLRUpQRUdEQVRBLU9ORS0wMDAx
+------=_mixed_0000000000000001
+Content-Type: image/jpeg; name="foto-fake-0002.jpg"
+Content-Disposition: attachment; filename="foto-fake-0002.jpg"
+Content-Transfer-Encoding: base64
+
+RkFLRUpQRUdEQVRBLVRXTy0wMDAy
+------=_mixed_0000000000000001--

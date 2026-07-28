@@ -1,0 +1,39 @@
+From: posta-certificata@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: POSTA CERTIFICATA: Inoltro comunicazione di esempio
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="pecbound-nested-0000001"
+
+--pecbound-nested-0000001
+Content-Type: text/plain; charset=utf-8
+
+Messaggio di posta certificata con allegato di inoltro.
+--pecbound-nested-0000001
+Content-Type: message/rfc822; name=postacert.eml
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline; filename=postacert.eml
+
+From: mittente@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: Inoltro comunicazione di esempio
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_nested_mixed_0001"
+
+------=_nested_mixed_0001
+Content-Type: text/plain; charset=utf-8
+
+Vedi il messaggio originale inoltrato in allegato.
+------=_nested_mixed_0001
+Content-Type: message/rfc822; name="messaggio-originale.eml"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="messaggio-originale.eml"
+
+From: collega@example.it
+To: mittente@pec-esempio.it
+Subject: Comunicazione originale
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Testo della comunicazione originale inoltrata.
+------=_nested_mixed_0001--
+--pecbound-nested-0000001--

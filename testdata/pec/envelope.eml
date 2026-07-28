@@ -1,0 +1,50 @@
+From: posta-certificata@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: POSTA CERTIFICATA: Pratica di esempio n. 00000000000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="pecbound-envelope-0000001"
+
+--pecbound-envelope-0000001
+Content-Type: text/plain; charset=utf-8
+
+Messaggio di posta certificata: il messaggio e' stato consegnato.
+--pecbound-envelope-0000001
+Content-Type: message/rfc822; name=postacert.eml
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline; filename=postacert.eml
+
+From: mittente@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: Pratica di esempio n. 00000000000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_inner_mixed_0001"
+
+------=_inner_mixed_0001
+Content-Type: multipart/alternative; boundary="----=_inner_alt_0001"
+
+------=_inner_alt_0001
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+Q29udGVudXRvIHJlYWxlIGRlbCBtZXNzYWdnaW8gZGkgZXNlbXBpby4=
+------=_inner_alt_0001
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+Q29udGVudXRvIHJlYWxlIGRlbCBtZXNzYWdnaW8gZGkgZXNlbXBpby48L2Jv
+ZHk+PC9odG1sPg==
+------=_inner_alt_0001--
+------=_inner_mixed_0001
+Content-Type: application/pdf; name="Allegato-fake-1.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Allegato-fake-1.pdf"
+
+JVBERi0xLjQgRkFLRSBBVFRBQ0hNRU5UIE9ORQolJUVPRg==
+------=_inner_mixed_0001
+Content-Type: application/pdf; name="Allegato-fake-2.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Allegato-fake-2.pdf"
+
+JVBERi0xLjQgRkFLRSBBVFRBQ0hNRU5UIFRXTwolJUVPRg==
+------=_inner_mixed_0001--
+--pecbound-envelope-0000001--

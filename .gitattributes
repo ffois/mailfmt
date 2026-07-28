@@ -1,3 +1,8 @@
 # Go sources stay LF in the worktree regardless of core.autocrlf, so gofmt
 # and diffs behave the same on Windows and on CI.
 *.go text eol=lf
+
+# Fixture messages are real MIME: their CRLF line endings are part of what
+# the parser exercises. Treat them as binary so git and editors never
+# rewrite them, regardless of core.autocrlf.
+testdata/** -text

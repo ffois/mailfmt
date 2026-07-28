@@ -1,0 +1,18 @@
+From: mittente@example.it
+To: destinatario@example.it
+Subject: Messaggio di esempio con falso allegato winmail.dat
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_nottnef_mixed_0001"
+
+------=_nottnef_mixed_0001
+Content-Type: text/plain; charset=utf-8
+
+Messaggio di esempio il cui allegato winmail.dat non e' in realta' un file TNEF.
+------=_nottnef_mixed_0001
+Content-Type: application/octet-stream; name="winmail.dat"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="winmail.dat"
+
+UVVFU1RPIE5PTiBFJyBVTiBGSUxFIFRORUYgVkFMSURPLiBTT0xPIFRFU1RPIERJIEVTRU1QSU8u
+DQo=
+------=_nottnef_mixed_0001--

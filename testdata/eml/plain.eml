@@ -1,0 +1,15 @@
+Return-Path: <noreply@example-utility.it>
+From: "Modulo Contatti" <noreply@example-utility.it>
+To: assistenza@example-utility.it
+Subject: Webform submission from: Modulo Contatti
+Date: Mon, 2 Mar 2026 10:14:46 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8Bit
+
+<html><body>
+<p>Nome: Mario Rossi</p>
+<p>Email: mario.rossi@example.it</p>
+<p>Telefono: 000 0000000</p>
+<p>Messaggio: Richiesta informazioni generiche sul servizio.</p>
+</body></html>
