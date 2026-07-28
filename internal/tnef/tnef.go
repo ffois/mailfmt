@@ -2,6 +2,7 @@ package tnef
 
 import (
 	"encoding/binary"
+	"fmt"
 	"mime"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,7 @@ func extractTNEFRecursive(data []byte, depth int) ([]email.Attachment, error) {
 		return nil, nil
 	}
 
-	decoded, err := tneflib.Decode(data)
+	decoded, err := decodeTNEF(data)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +89,34 @@ func extractTNEFRecursive(data []byte, depth int) ([]email.Attachment, error) {
 	}
 
 	return attachments, nil
+}
+
+// decodeTNEF calls into github.com/teamwork/tnef behind a recover boundary.
+//
+// This package sits on the trust boundary for untrusted mail: every byte
+// that reaches decodeTNEF came from a winmail.dat attachment inside a
+// message nobody has vetted, and mailfmt.ParseFile is a public API that
+// callers hand attacker-controlled files to as a matter of course. The
+// upstream decoder is pinned to a 2020 commit and is effectively
+// unmaintained; its Decode allocates the *Attachment record only when it
+// sees an attAttachRendData attribute (0x9002) and unconditionally
+// dereferences that pointer as soon as a title or data attribute arrives
+// (see teamwork/tnef's tnef.go, Decode and Attachment.addAttr). A TNEF blob
+// that carries the right signature but orders its attributes differently -
+// trivial for an attacker to construct - panics with a nil-pointer
+// dereference inside a dependency this package is not permitted to fork,
+// vendor, or patch. Without this boundary that panic is unrecoverable: it
+// propagates straight through Extract, Expand, eml.Build, and ParseFile and
+// takes down the caller's whole process. Do not delete this as boilerplate;
+// it is the only thing standing between a crafted attachment and a crashed
+// server.
+func decodeTNEF(data []byte) (decoded *tneflib.Data, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("tnef: upstream decoder panicked on %d-byte input: %v", len(data), r)
+		}
+	}()
+	return tneflib.Decode(data)
 }
 
 // isEmbeddedMsgPlaceholder returns true if the attachment is a tiny placeholder

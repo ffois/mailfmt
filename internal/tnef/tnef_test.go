@@ -125,3 +125,127 @@ func TestExtractRejectsGarbage(t *testing.T) {
 		t.Fatal("expected an error for non-TNEF input, got nil")
 	}
 }
+
+// appendAttr writes one TNEF attribute (level, id, type, data, checksum) to
+// buf. It is the same layout as buildTNEF's private writeAttr closure above,
+// duplicated here (rather than factored out of buildTNEF) so the existing
+// tests and their helper stay untouched.
+func appendAttr(buf *bytes.Buffer, level byte, id uint16, typ uint16, data []byte) {
+	buf.WriteByte(level)
+	binary.Write(buf, binary.LittleEndian, id)
+	binary.Write(buf, binary.LittleEndian, typ)
+	binary.Write(buf, binary.LittleEndian, uint32(len(data)))
+	buf.Write(data)
+	var sum uint16
+	for _, b := range data {
+		sum += uint16(b)
+	}
+	binary.Write(buf, binary.LittleEndian, sum)
+}
+
+// craftedTNEF reproduces, byte-for-byte, the crafted blob from the
+// vulnerability report: a valid TNEF signature and key, followed by a
+// single attAttachTitle (0x8010) attribute with no preceding
+// attAttachRendData. The upstream decoder only allocates its *Attachment
+// record on attAttachRendData (0x9002) and dereferences that pointer for
+// any level-2 attribute that arrives first (see decodeTNEF's doc comment in
+// tnef.go), so decoding this blob panics inside the upstream library.
+func craftedTNEF() []byte {
+	var buf bytes.Buffer
+	buf.Write(tnefMagic)
+	binary.Write(&buf, binary.LittleEndian, uint16(0x0001)) // key
+	appendAttr(&buf, 2, 0x8010, 0x0006, append([]byte("evil.txt"), 0))
+	return buf.Bytes()
+}
+
+// buildNestedCraftedTNEF wraps craftedTNEF inside a second, outer TNEF
+// container so it is reachable only through extractTNEFRecursive's own
+// recursive call, not through the top-level Extract entry point directly.
+// The outer container is a normal, valid TNEF attachment (attAttachRendData
+// then Title then Data, so the upstream decoder handles it fine) plus one
+// attAttachment (0x9005) attribute whose value is a MAPI properties block
+// exposing PR_ATTACH_DATA_OBJ (0x3701): a 16-byte GUID placeholder followed
+// by the crafted inner TNEF stream. That is exactly the shape
+// findEmbeddedTNEFStreamsFromRaw looks for when it digs into embedded MAPI
+// messages, and mirrors how Outlook nests a forwarded message inside
+// another.
+func buildNestedCraftedTNEF() []byte {
+	inner := craftedTNEF()
+
+	// PR_ATTACH_DATA_OBJ's value, per findEmbeddedTNEFStreamsFromRaw's
+	// `afterGuid := embedded[16:]`: a 16-byte GUID placeholder + the nested
+	// TNEF stream.
+	embeddedValue := append(make([]byte, 16), inner...)
+
+	var mapi bytes.Buffer
+	binary.Write(&mapi, binary.LittleEndian, uint32(1)) // property count
+	propTag := uint32(0x3701)<<16 | uint32(0x000D)      // PR_ATTACH_DATA_OBJ, PT_OBJECT
+	binary.Write(&mapi, binary.LittleEndian, propTag)
+	binary.Write(&mapi, binary.LittleEndian, uint32(1)) // PT_OBJECT value count
+	binary.Write(&mapi, binary.LittleEndian, uint32(len(embeddedValue)))
+	mapi.Write(embeddedValue)
+	// extractPRAttachDataObjDirect returns as soon as it reads the
+	// PR_ATTACH_DATA_OBJ value above, so this padding is never parsed; it
+	// only exists to push the attAttachment attribute's length past
+	// findEmbeddedTNEFStreamsFromRaw's `attrLen > 100` threshold.
+	mapi.Write(make([]byte, 64))
+
+	var buf bytes.Buffer
+	buf.Write(tnefMagic)
+	binary.Write(&buf, binary.LittleEndian, uint16(0x0001))             // key
+	appendAttr(&buf, 2, 0x9002, 0x0006, make([]byte, 14))               // attAttachRendData
+	appendAttr(&buf, 2, 0x8010, 0x0002, append([]byte("outer.txt"), 0)) // attAttachTitle
+	appendAttr(&buf, 2, 0x800F, 0x0006, []byte("outer content"))        // attAttachData
+	appendAttr(&buf, 2, 0x9005, 0x0006, mapi.Bytes())                   // attAttachment (embeds crafted inner TNEF)
+	return buf.Bytes()
+}
+
+// A crafted TNEF whose first level-2 attribute isn't attAttachRendData used
+// to reach the upstream decoder's nil-pointer dereference directly. Extract
+// must convert that panic into an ordinary error: a mail-parsing library
+// that panics on attacker-controlled bytes takes its caller's process down
+// with it, and every winmail.dat this package sees is attacker-controlled
+// by default.
+func TestExtractRecoversFromUpstreamPanic(t *testing.T) {
+	_, err := Extract(craftedTNEF())
+	if err == nil {
+		t.Fatal("expected an error from the crafted blob, got nil")
+	}
+}
+
+// Expand must neither let the crafted-blob panic escape nor silently drop
+// the attachment: losing it without a trace would be a worse outcome than
+// the panic it replaces, because the caller would never know something was
+// there. A crafted winmail.dat must be preserved exactly like a
+// non-TNEF-despite-the-name attachment already is (TestExpandLeavesNonTNEFAlone).
+func TestExpandPreservesCraftedTNEFContainer(t *testing.T) {
+	blob := craftedTNEF()
+	original := []email.Attachment{
+		{Filename: "winmail.dat", ContentType: "application/ms-tnef", Data: blob},
+	}
+
+	got := Expand(original)
+
+	if len(got) != 1 {
+		t.Fatalf("expected the crafted attachment to survive untouched, got %d entries: %+v", len(got), got)
+	}
+	if got[0].Filename != "winmail.dat" || !bytes.Equal(got[0].Data, blob) {
+		t.Errorf("crafted attachment was modified: %+v", got[0])
+	}
+}
+
+// extractTNEFRecursive re-enters the upstream decoder for embedded MAPI
+// messages found via findEmbeddedTNEFStreamsFromRaw, and the recover
+// boundary lives inside that same function. This proves the boundary also
+// covers the recursive call, not just the top-level Extract entry: a nested
+// crafted container must be contained exactly as an outer one is, and the
+// still-valid outer attachment must survive alongside the containment.
+func TestExtractRecoversFromNestedUpstreamPanic(t *testing.T) {
+	attachments, err := Extract(buildNestedCraftedTNEF())
+	if err != nil {
+		t.Fatalf("the outer container is valid TNEF and should still extract, got error: %v", err)
+	}
+	if len(attachments) != 1 || attachments[0].Filename != "outer.txt" {
+		t.Fatalf("expected only the outer attachment to survive, got %+v", attachments)
+	}
+}
