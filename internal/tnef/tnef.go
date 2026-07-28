@@ -42,7 +42,33 @@ func isTNEFAttachment(att email.Attachment) bool {
 
 // Extract decodes a TNEF blob and returns the files embedded
 // inside it, recursively following nested embedded MAPI messages.
-func Extract(data []byte) ([]email.Attachment, error) {
+//
+// Extract is the trust boundary for this package: every byte it receives came
+// from a winmail.dat attachment inside a message nobody has vetted, and
+// mailfmt.ParseFile is a public API that callers hand attacker-controlled files
+// to as a matter of course. Two kinds of code run below this line, and both
+// need the guard. The vendored decoder in github.com/teamwork/tnef is pinned to
+// a 2020 commit and effectively unmaintained; its Decode allocates the
+// *Attachment record only when it sees an attAttachRendData attribute (0x9002)
+// and unconditionally dereferences that pointer as soon as a title or data
+// attribute arrives (see teamwork/tnef's tnef.go, Decode and
+// Attachment.addAttr), so a blob carrying the right signature with its
+// attributes in another order - trivial to construct - panics with a nil
+// dereference inside a dependency this package may not fork, vendor, or patch.
+// findEmbeddedTNEFStreamsFromRaw and extractPRAttachDataObjDirect then walk the
+// same untrusted bytes with hand-rolled offset arithmetic of our own.
+//
+// Without this boundary any panic from either propagates through Expand,
+// eml.Build and ParseFile and takes down the caller's whole process. Do not
+// delete it as boilerplate; it is the only thing between a crafted attachment
+// and a crashed server.
+func Extract(data []byte) (atts []email.Attachment, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			atts = nil
+			err = fmt.Errorf("tnef: panic decoding %d-byte blob: %v", len(data), r)
+		}
+	}()
 	return extractTNEFRecursive(data, 0)
 }
 
@@ -91,25 +117,10 @@ func extractTNEFRecursive(data []byte, depth int) ([]email.Attachment, error) {
 	return attachments, nil
 }
 
-// decodeTNEF calls into github.com/teamwork/tnef behind a recover boundary.
-//
-// This package sits on the trust boundary for untrusted mail: every byte
-// that reaches decodeTNEF came from a winmail.dat attachment inside a
-// message nobody has vetted, and mailfmt.ParseFile is a public API that
-// callers hand attacker-controlled files to as a matter of course. The
-// upstream decoder is pinned to a 2020 commit and is effectively
-// unmaintained; its Decode allocates the *Attachment record only when it
-// sees an attAttachRendData attribute (0x9002) and unconditionally
-// dereferences that pointer as soon as a title or data attribute arrives
-// (see teamwork/tnef's tnef.go, Decode and Attachment.addAttr). A TNEF blob
-// that carries the right signature but orders its attributes differently -
-// trivial for an attacker to construct - panics with a nil-pointer
-// dereference inside a dependency this package is not permitted to fork,
-// vendor, or patch. Without this boundary that panic is unrecoverable: it
-// propagates straight through Extract, Expand, eml.Build, and ParseFile and
-// takes down the caller's whole process. Do not delete this as boilerplate;
-// it is the only thing standing between a crafted attachment and a crashed
-// server.
+// decodeTNEF calls into the upstream decoder behind its own recover, so that a
+// panic there is reported as an error from the blob that caused it rather than
+// discarding the whole recursion. Extract's guard still backstops everything
+// below it; see the reasoning there.
 func decodeTNEF(data []byte) (decoded *tneflib.Data, err error) {
 	defer func() {
 		if r := recover(); r != nil {
