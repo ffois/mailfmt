@@ -52,6 +52,13 @@ func init() {
 }
 
 // Decompress inflates a PidTagRtfCompressed stream into raw RTF bytes.
+//
+// A stream cut short in the middle of a token is not reported as an error.
+// The control-byte loop carries no length of its own, so running out of source
+// bytes mid-literal or mid-back-reference is the same code path as a clean end
+// of stream, and the only field that could tell them apart is the sender's own
+// rawSize. Callers get the prefix that was decoded and a nil error; a caller
+// that needs to know whether the stream was whole must check it themselves.
 func Decompress(data []byte) ([]byte, error) {
 	if len(data) < 16 {
 		return nil, errors.New("rtf: stream too short")
