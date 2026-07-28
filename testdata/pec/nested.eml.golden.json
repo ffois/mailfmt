@@ -1,0 +1,24 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "message/rfc822",
+        "filename": "messaggio-originale.eml",
+        "size": 197
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 50,
+    "bodyPrefix": "Vedi il messaggio originale inoltrato in allegato.",
+    "cc": null,
+    "date": "",
+    "from": "\u003cmittente@pec-esempio.it\u003e",
+    "hasInnerEmail": true,
+    "isPec": false,
+    "subject": "Inoltro comunicazione di esempio",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

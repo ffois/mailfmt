@@ -1,0 +1,29 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "text/plain",
+        "filename": "nota.txt",
+        "size": 36
+      },
+      {
+        "contentType": "text/plain",
+        "filename": "foto.txt",
+        "size": 36
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 65,
+    "bodyPrefix": "Messaggio di esempio con un allegato winmail.dat in formato TNEF.",
+    "cc": null,
+    "date": "",
+    "from": "\u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Messaggio di esempio con allegato TNEF",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

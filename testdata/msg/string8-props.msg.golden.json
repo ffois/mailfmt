@@ -1,0 +1,16 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 31,
+    "bodyPrefix": "Testo semplice\u003cbr\u003econ due righe",
+    "cc": null,
+    "date": "",
+    "from": "",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Perché no",
+    "to": null
+  },
+  "format": "msg"
+}

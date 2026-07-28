@@ -1,0 +1,21 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 52,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eIn allegato il preventivo.\u003c/body\u003e\u003c/html\u003e",
+    "cc": [
+      "copia@example.it",
+      "altra@example.it"
+    ],
+    "date": "",
+    "from": "Anna Ferri \u003canna.ferri@example.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Preventivo n. 4471",
+    "to": [
+      "ufficio@example.it"
+    ]
+  },
+  "format": "msg"
+}

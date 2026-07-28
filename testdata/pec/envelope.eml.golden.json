@@ -1,0 +1,29 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "application/pdf",
+        "filename": "Allegato-fake-1.pdf",
+        "size": 34
+      },
+      {
+        "contentType": "application/pdf",
+        "filename": "Allegato-fake-2.pdf",
+        "size": 34
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 67,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eContenuto reale del messaggio di esempio.\u003c/body\u003e\u003c/html\u003e",
+    "cc": null,
+    "date": "",
+    "from": "\u003cmittente@pec-esempio.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Pratica di esempio n. 00000000000",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

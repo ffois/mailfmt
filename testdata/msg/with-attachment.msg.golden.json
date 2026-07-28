@@ -1,0 +1,22 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "text/plain",
+        "filename": "nota.txt",
+        "size": 20
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 40,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eVedi allegato.\u003c/body\u003e\u003c/html\u003e",
+    "cc": null,
+    "date": "",
+    "from": "",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Con allegato",
+    "to": null
+  },
+  "format": "msg"
+}

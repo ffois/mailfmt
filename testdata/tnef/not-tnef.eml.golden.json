@@ -1,0 +1,24 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "application/octet-stream",
+        "filename": "winmail.dat",
+        "size": 59
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 80,
+    "bodyPrefix": "Messaggio di esempio il cui allegato winmail.dat non e' in realta' un file TNEF.",
+    "cc": null,
+    "date": "",
+    "from": "\u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Messaggio di esempio con falso allegato winmail.dat",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

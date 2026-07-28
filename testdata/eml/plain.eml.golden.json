@@ -1,0 +1,18 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 189,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003e\r\n\u003cp\u003eNome: Mario Rossi\u003c/p\u003e\r\n\u003cp\u003eEmail: mario.rossi@example.it\u003c/p\u003e\r\n\u003cp\u003eTelefono: 000 0000000\u003c/p\u003e\r\n\u003cp\u003eMessaggio",
+    "cc": null,
+    "date": "Mon, 2 Mar 2026 10:14:46 +0000",
+    "from": "\"Modulo Contatti\" \u003cnoreply@example-utility.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Webform submission from: Modulo Contatti",
+    "to": [
+      "\u003cassistenza@example-utility.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

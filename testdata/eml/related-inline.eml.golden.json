@@ -1,0 +1,24 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "image/jpeg",
+        "filename": "richiesta-fake.jpeg",
+        "size": 20
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 120,
+    "bodyPrefix": "\u003cdiv dir=\"auto\"\u003e\u003cdiv\u003e\u003cimg src=\"data:image/jpeg;base64,RkFLRUlOTElORUlNQUdFQllURVM=\" style=\"max-width:100%\"\u003e\u003c/div\u003e\u003c/div\u003e\r",
+    "cc": null,
+    "date": "",
+    "from": "\"Reparto Esempio\" \u003creparto@example-ospedale.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Richiesta visita specialistica di esempio",
+    "to": [
+      "\u003cpaziente@example.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

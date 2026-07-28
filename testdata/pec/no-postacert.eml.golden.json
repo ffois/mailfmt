@@ -1,0 +1,24 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "application/xml",
+        "filename": "daticert.xml",
+        "size": 710
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 130,
+    "bodyPrefix": "Messaggio di posta certificata senza l'allegato postacert.eml: la\r\nriga precedente serve a verificare il fallback su EML",
+    "cc": null,
+    "date": "",
+    "from": "\u003cposta-certificata@pec-esempio.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "POSTA CERTIFICATA: consegna (fixture senza postacert.eml)",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

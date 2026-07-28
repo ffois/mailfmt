@@ -1,0 +1,16 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 6826,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga d",
+    "cc": null,
+    "date": "",
+    "from": "",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Corpo lungo",
+    "to": null
+  },
+  "format": "msg"
+}

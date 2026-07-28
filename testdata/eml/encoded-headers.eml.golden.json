@@ -1,0 +1,18 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 107,
+    "bodyPrefix": "Gentile cliente,\r\nla informiamo che la pratica di esempio n. 000000 è stata aggiornata.\r\nCordiali saluti.\r",
+    "cc": null,
+    "date": "Thu, 26 Feb 2026 18:42:17 +0100",
+    "from": "=?utf-8?q?Ufficio_Citt=C3=A0_Esempio?= \u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "Comunicazione importante: pratica di esempio n. 000000",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

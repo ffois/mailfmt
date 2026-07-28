@@ -1,0 +1,29 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "image/jpeg",
+        "filename": "foto-fake-0001.jpg",
+        "size": 21
+      },
+      {
+        "contentType": "image/jpeg",
+        "filename": "foto-fake-0002.jpg",
+        "size": 21
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 98,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003e\u003cp\u003eCorpo \u003cb\u003eHTML\u003c/b\u003e: questa parte deve vincere sul testo semplice.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e\r",
+    "cc": null,
+    "date": "",
+    "from": "\"Assicurazioni Esempio SPA\" \u003csinistri@example-assicurazioni.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "I: Num. polizza 00000000000 Num. Sinistro 2026.00ESM.000000",
+    "to": [
+      "\u003cassicurato@example.it\u003e"
+    ]
+  },
+  "format": "eml"
+}
