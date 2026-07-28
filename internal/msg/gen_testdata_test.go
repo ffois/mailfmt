@@ -19,10 +19,11 @@ func TestGenerateMSGTestdata(t *testing.T) {
 	dir := filepath.Join("..", "..", "testdata", "msg")
 
 	cases := map[string]func() []byte{
-		"unicode-props.msg":   fixtureUnicodeProps,
-		"string8-props.msg":   fixtureString8Props,
-		"with-attachment.msg": fixtureWithAttachment,
-		"large-body.msg":      fixtureLargeBody,
+		"unicode-props.msg":        fixtureUnicodeProps,
+		"string8-props.msg":        fixtureString8Props,
+		"with-attachment.msg":      fixtureWithAttachment,
+		"large-body.msg":           fixtureLargeBody,
+		"multipart-attachment.msg": fixtureMultipartAttachment,
 	}
 
 	for name, build := range cases {
@@ -82,6 +83,54 @@ func fixtureWithAttachment() []byte {
 	att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("nota.txt"))
 	att.addStream(substgName(pidTagAttachMimeTag, propTypeString), utf16LE("text/plain"))
 	att.addStream(substgName(pidTagAttachData, propTypeBinary), []byte("contenuto della nota"))
+	return buildCFB(root)
+}
+
+// An attachment can be a whole MIME tree rather than a single file: Outlook
+// stores a certified-mail envelope this way, as one attachment whose MIME tag
+// is multipart/mixed and whose data is the raw envelope. The reader then has to
+// walk that tree itself - descend the parts, pull the message/rfc822 payload
+// out, and walk that in turn - which is the only path that sets HasInnerEmail
+// for a .msg.
+func fixtureMultipartAttachment() []byte {
+	inner := "From: Studio Medico <studio@example.it>\r\n" +
+		"To: paziente@example.it\r\n" +
+		"Subject: Referto\r\n" +
+		"Content-Type: multipart/mixed; boundary=\"interno\"\r\n" +
+		"\r\n" +
+		"--interno\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" +
+		"In allegato il referto.\r\n" +
+		"--interno\r\n" +
+		"Content-Type: application/pdf; name=\"referto.pdf\"\r\n" +
+		"Content-Transfer-Encoding: base64\r\n" +
+		"\r\n" +
+		"JVBERi0xLjQK\r\n" +
+		"--interno--\r\n"
+
+	envelope := "Content-Type: multipart/mixed; boundary=\"esterno\"\r\n" +
+		"\r\n" +
+		"--esterno\r\n" +
+		"Content-Type: message/rfc822\r\n" +
+		"Content-Disposition: attachment; filename=\"postacert.eml\"\r\n" +
+		"\r\n" +
+		inner +
+		"--esterno\r\n" +
+		"Content-Type: application/pkcs7-signature; name=\"smime.p7s\"\r\n" +
+		"Content-Transfer-Encoding: base64\r\n" +
+		"\r\n" +
+		"AAECAwQ=\r\n" +
+		"--esterno--\r\n"
+
+	root := &cfbEntry{name: "Root Entry"}
+	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("POSTA CERTIFICATA: Referto"))
+	root.addStream(substgName(pidTagBodyHTML, propTypeString), utf16LE("<html><body>Messaggio certificato.</body></html>"))
+
+	att := root.addStorage("__attach_version1.0_#00000000")
+	att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("envelope.eml"))
+	att.addStream(substgName(pidTagAttachMimeTag, propTypeString), utf16LE("multipart/mixed; boundary=\"esterno\""))
+	att.addStream(substgName(pidTagAttachData, propTypeBinary), []byte(envelope))
 	return buildCFB(root)
 }
 

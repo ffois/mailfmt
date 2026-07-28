@@ -2,6 +2,8 @@ package msg
 
 import (
 	"bytes"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -129,9 +131,71 @@ func TestReadAttachmentPrefersLongFilename(t *testing.T) {
 	}
 }
 
-// Anything that is not a compound file is an error, not a panic.
+// An attachment whose MIME tag is multipart/* is not a file but a MIME tree,
+// and the reader has to walk it: the parts come out as attachments in their
+// own right, a message/rfc822 part is kept whole and also descended into, and
+// base64 payloads are decoded on the way. This is how a certified-mail envelope
+// arrives inside a .msg, and the only path that sets HasInnerEmail for one.
+func TestReadMultipartAttachment(t *testing.T) {
+	data, err := Read(bytes.NewReader(fixtureMultipartAttachment()))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	if !data.HasInnerEmail {
+		t.Error("expected HasInnerEmail to be set for an envelope attachment")
+	}
+
+	byName := map[string]email.Attachment{}
+	for _, att := range data.Attachments {
+		byName[att.Filename] = att
+	}
+
+	// The envelope itself is replaced by its contents, not kept alongside them.
+	if _, ok := byName["envelope.eml"]; ok {
+		t.Error("the multipart container should not survive as an attachment of its own")
+	}
+
+	eml, ok := byName["postacert.eml"]
+	if !ok {
+		t.Fatalf("expected the inner message among %v", slices.Sorted(maps.Keys(byName)))
+	}
+	if eml.ContentType != "message/rfc822" {
+		t.Errorf("inner message: expected content type message/rfc822, got %q", eml.ContentType)
+	}
+	if !bytes.Contains(eml.Data, []byte("Subject: Referto")) {
+		t.Error("inner message: expected the raw rfc822 payload to be kept whole")
+	}
+
+	pdf, ok := byName["referto.pdf"]
+	if !ok {
+		t.Fatalf("expected the attachment nested inside the inner message, got %v", slices.Sorted(maps.Keys(byName)))
+	}
+	if !bytes.HasPrefix(pdf.Data, []byte("%PDF-1.4")) {
+		t.Errorf("referto.pdf: expected the base64 payload decoded, got %q", pdf.Data)
+	}
+
+	sig, ok := byName["smime.p7s"]
+	if !ok {
+		t.Fatalf("expected the signature part, got %v", slices.Sorted(maps.Keys(byName)))
+	}
+	if !bytes.Equal(sig.Data, []byte{0, 1, 2, 3, 4}) {
+		t.Errorf("smime.p7s: expected the base64 payload decoded, got %v", sig.Data)
+	}
+}
+
+// Anything that is not a compound file is an error, not a panic. The input is
+// full-length on purpose: a short one fails at the header read, which proves
+// nothing about the signature check that is the thing under test here.
 func TestReadRejectsNonMSG(t *testing.T) {
-	if _, err := Read(bytes.NewReader([]byte("From: a@example.com\r\n\r\nnot a msg"))); err == nil {
+	notMSG := make([]byte, 512)
+	copy(notMSG, "From: a@example.com\r\n\r\nnot a msg")
+
+	_, err := Read(bytes.NewReader(notMSG))
+	if err == nil {
 		t.Fatal("expected an error for a non-MSG input, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid MSG file") {
+		t.Errorf("expected the signature check to reject it, got %v", err)
 	}
 }

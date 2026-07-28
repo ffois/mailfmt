@@ -1,0 +1,32 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "message/rfc822",
+        "filename": "postacert.eml",
+        "size": 340
+      },
+      {
+        "contentType": "application/pdf",
+        "filename": "referto.pdf",
+        "size": 9
+      },
+      {
+        "contentType": "application/pkcs7-signature",
+        "filename": "smime.p7s",
+        "size": 5
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 48,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eMessaggio certificato.\u003c/body\u003e\u003c/html\u003e",
+    "cc": null,
+    "date": "",
+    "from": "",
+    "hasInnerEmail": true,
+    "isPec": true,
+    "subject": "POSTA CERTIFICATA: Referto",
+    "to": null
+  },
+  "format": "msg"
+}
