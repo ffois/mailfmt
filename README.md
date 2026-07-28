@@ -57,9 +57,56 @@ richer low-level type returned by `Parse`.
   `postacert.eml`, with `daticert.xml` + S/MIME detection.
 - Attachments and inline embedded files (by Content-ID).
 
+### Malformed TNEF input
+
+The upstream TNEF decoder ([github.com/teamwork/tnef](https://github.com/teamwork/tnef),
+unmaintained) will dereference a nil attachment record on a crafted
+`winmail.dat`. `internal/tnef` recovers that panic at its trust boundary and
+returns it as an error instead, leaving the unparseable attachment in the
+list unchanged. This contains the defect at the boundary; it does not fix it
+upstream.
+
+## Layout
+
+The public API lives in the root package; each format is implemented in its
+own package under `internal/`.
+
+| Package | Responsibility |
+|---|---|
+| `internal/email` | Shared flat types and text helpers |
+| `internal/mimeparse` | RFC 5322/MIME parser |
+| `internal/eml` | EML reader |
+| `internal/pec` | PEC envelope |
+| `internal/msg` | OLE2 compound file and Outlook properties |
+| `internal/rtf` | RTF decompression and de-encapsulation |
+| `internal/tnef` | `winmail.dat` container |
+
+## Test
+
+```
+go test ./...
+```
+
+Fixtures under `testdata/` are derived from real messages with the personal
+data replaced, except the `.msg` ones, which are generated: see
+`internal/fixtures/README.md`.
+
+To regenerate the snapshots after an intended behavior change:
+
+```
+go test . -run TestGoldenFixtures -update
+go test ./internal/msg/ -run TestGenerateMSGTestdata -update
+```
+
+An end-to-end test against a real `.msg` file, not checked in:
+
+```
+MSG_DEBUG_PATH="/path/to/file.msg" go test ./internal/msg/ -run TestReadMSGInlineImagesE2E -v
+```
+
 ## Credits
 
-`mailparser.go` is adapted from
+`internal/mimeparse/mimeparse.go` is adapted from
 [github.com/DusanKasan/parsemail](https://github.com/DusanKasan/parsemail),
 MIT licensed, Copyright (c) 2017 Dusan Kasan. See [NOTICE](./NOTICE) for the
 full upstream license text.

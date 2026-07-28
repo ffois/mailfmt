@@ -1,7 +1,7 @@
 This project includes code derived from a third-party project.
 
-mailparser.go
--------------
+internal/mimeparse/mimeparse.go
+--------------------------------
 Derived from github.com/DusanKasan/parsemail.
 
 The MIT License (MIT)
