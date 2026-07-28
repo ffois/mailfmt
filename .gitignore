@@ -33,3 +33,5 @@ go.work.sum
 
 # Scratch workspace for subagent-driven plan execution
 .superpowers/
+
+docs/superpowers
