@@ -67,6 +67,22 @@ func Parse(r io.Reader) (email Email, err error) {
 	return
 }
 
+// ParseHeader reads only the header of a message from r: addresses, subject,
+// dates, ids and the decoded header map. The body is not looked at, so a
+// body Parse would reject does not stop it.
+func ParseHeader(r io.Reader) (Email, error) {
+	msg, err := mail.ReadMessage(r)
+	if err != nil {
+		return Email{}, err
+	}
+	email, err := createEmailFromHeader(msg.Header)
+	if err != nil {
+		return Email{}, err
+	}
+	email.ContentType = msg.Header.Get("Content-Type")
+	return email, nil
+}
+
 func createEmailFromHeader(header mail.Header) (email Email, err error) {
 	hp := headerParser{header: &header}
 

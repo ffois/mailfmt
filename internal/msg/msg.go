@@ -501,7 +501,12 @@ func parseMessage(cfb *cfbReader) (*email.Data, error) {
 	if cfb.root == nil {
 		return nil, errors.New("no root directory")
 	}
+	return buildMessage(cfb, rootProps(cfb)), nil
+}
 
+// rootProps reads the message's variable-length properties, one
+// __substg1.0_ stream each, keyed by property tag.
+func rootProps(cfb *cfbReader) map[uint32][]byte {
 	props := make(map[uint32][]byte)
 
 	for _, child := range cfb.root.Children {
@@ -515,7 +520,10 @@ func parseMessage(cfb *cfbReader) (*email.Data, error) {
 			}
 		}
 	}
+	return props
+}
 
+func buildMessage(cfb *cfbReader, props map[uint32][]byte) *email.Data {
 	data := &email.Data{}
 
 	data.Subject = getPropString(props, pidTagSubject)
@@ -596,7 +604,7 @@ func parseMessage(cfb *cfbReader) (*email.Data, error) {
 		data.Body = re.ReplaceAllLiteralString(data.Body, dataURI)
 	}
 
-	return data, nil
+	return data
 }
 
 func parsePropertyName(name string) (uint32, uint16) {

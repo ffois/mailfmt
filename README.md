@@ -48,6 +48,64 @@ email, err := mailfmt.ReadPecInnerEml("pec.eml")   // PEC: inner postacert.eml
 `EmailData` is the flattened, JSON-friendly result type. `Email` is the
 richer low-level type returned by `Parse`.
 
+### Outlook-compatible readers (`MS_`)
+
+The `MS_` functions mirror the readers above with the behaviour of Microsoft
+Outlook 2010 (Office 14.0.7268.5000), as observed by reverse engineering
+`OUTLOOK.EXE`, `OLMAPI32.DLL` and `OUTLMIME.DLL`. They return `MSEmailData`,
+which embeds `EmailData` and adds `Importance`, `ConversationTopic`,
+`Unsent`, `RTFBody` and `MSAttachments`: every attachment Outlook creates,
+with `DisplayName`, `ContentID`, `ContentLocation`, `Hidden` and `Embedded`.
+`EmailData.Attachments` holds the visible ones, as Outlook lists them.
+
+| Symbol | Purpose |
+|---|---|
+| `MS_ParseFile(path) (*MSEmailData, EmailFormat, error)` | detect by extension + parse; no PEC handling |
+| `MS_DetectEmailFormat(path) (EmailFormat, error)` | `.msg` / `.eml` by extension, as Windows hands files to Outlook |
+| `MS_ReadEmlFile(path) (*MSEmailData, error)` | MIME import as `IConverterSession::MIMEToMAPI` does it |
+| `MS_ReadPecInnerEml(path) (*MSEmailData, error)` | the PEC's `postacert.eml`, opened as an attached message |
+| `MS_ReadMsgFile(path) (*MSEmailData, error)` | Outlook `.msg`, fixed-length properties included |
+| `MS_Read(io.ReaderAt) (*MSEmailData, error)` | Outlook `.msg` from a reader |
+
+Where they differ from the plain readers:
+
+- **EML body**: the HTML body, else the plain one, chosen as Outlook's MIME
+  engine chooses them: a `multipart/related` root names it with `start=`;
+  otherwise the first non-attachment `text/html` (`text/enriched` as a
+  fallback) or `text/plain`, and inside `multipart/mixed` only the first
+  text-bearing part counts. Charsets are decoded.
+- **EML attachments**: every other non-empty part, in document order; the
+  alternatives of the body are not attachments. A later text part in
+  `multipart/mixed` is one. Read receipts are dropped, delivery reports are
+  `details.txt`, `message/rfc822` parts are `Embedded`. With an HTML body, a
+  part that has a `Content-ID` or `Content-Location` (its own or an
+  ancestor's) and is not disposed `attachment` is `Hidden` and inlined.
+- **EML names**: the declared filename, else the `Content-Type` name, given
+  the extension Windows registers for the type when it has none; without a
+  name the part's subject, else its `Content-Description`, else
+  `Allegato senza titolo 00000` (the Italian template of this Office,
+  numbered per message), plus the extension.
+- **EML headers**: `Importance` from `Importance` / `X-Priority` /
+  `X-MSMail-Priority` (a valid `Importance` always wins);
+  `ConversationTopic` is the subject without a prefix of up to three
+  characters ending in `:`; `X-Unsent` read as a number.
+- **winmail.dat**: decoded only when typed `application/ms-tnef` or named
+  `winmail.dat`, only the last such part, and only when its
+  `PR_TNEF_CORRELATION_KEY` matches `X-MS-TNEF-Correlator` if the header is
+  present; once decoded it is removed even if empty. Attached messages stay
+  one `Embedded` attachment, files take their MAPI long name, unnamed ones
+  are `Untitled Attachment`. Its compressed RTF goes to `RTFBody`; for a
+  `multipart/report` its recipient table replaces To/Cc/Bcc; without a
+  correlator its `[[ name : n in winmail.dat ]]` tags are stripped from a
+  plain text body.
+- **MSG**: `__properties_version1.0` is read too, so `Importance`,
+  `Unsent` (`MSGFLAG_UNSENT`) and `Date` (`PR_CLIENT_SUBMIT_TIME`, else
+  `PR_MESSAGE_DELIVERY_TIME`) are filled; a property stream shorter than
+  its 32-byte header fails the read, as `MAPI_E_CORRUPT_DATA` does in
+  Outlook. Each attachment object is one attachment (a multipart one is not
+  opened); `PR_ATTACHMENT_HIDDEN`, or `ATT_INVISIBLE_IN_HTML` with an HTML
+  body, hides it; an attached message is `Embedded`.
+
 ## What it handles
 
 - MSG bodies stored as `PidTagRtfCompressed`: decompressed per [MS-OXRTFCP]

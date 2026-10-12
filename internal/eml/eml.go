@@ -35,6 +35,12 @@ func ReadFile(filePath string) (*email.Data, error) {
 // attachments as well, expands any winmail.dat container, and flags PEC
 // envelopes.
 func Build(parsed mimeparse.Email) *email.Data {
+	return build(parsed, tnef.Expand)
+}
+
+// build is Build with the winmail.dat expansion left to the caller, so the
+// MS_ readers can apply Outlook's rules instead.
+func build(parsed mimeparse.Email, expandTNEF func([]email.Attachment) []email.Attachment) *email.Data {
 	formatAddress := func(addr []*mail.Address) []string {
 		var result []string
 		for _, a := range addr {
@@ -101,7 +107,7 @@ func Build(parsed mimeparse.Email) *email.Data {
 		})
 	}
 
-	attachments = tnef.Expand(attachments)
+	attachments = expandTNEF(attachments)
 
 	var from string
 	if len(parsed.From) > 0 {
