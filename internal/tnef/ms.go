@@ -39,11 +39,28 @@ type MSDecoded struct {
 	// Recipients is the recipient table (attRecipTable). Outlook takes it
 	// only for Report.* messages.
 	Recipients []MSRecipient
+
+	// Subject is PR_SUBJECT from attMsgProps, else attSubject.
+	Subject string
+
+	// Dropped counts the attachment records Outlook refuses, those without
+	// PR_ATTACH_METHOD; Outlook then warns "Impossibile aprire uno o più
+	// allegati".
+	Dropped int
 }
 
-// msUntitledAttachment is the name OLMAPI32.DLL gives a TNEF attachment
-// without a title.
-const msUntitledAttachment = "Untitled Attachment"
+// The attribute IDs Outlook's TNEF reader acts on. They are matched whole,
+// type included: an attAttachTitle written as atpText (0x00028010) instead of
+// atpString is ignored, as Outlook 2010 ignores it.
+const (
+	msAttAttachRendData = 0x00069002
+	msAttAttachTitle    = 0x00018010
+	msAttAttachData     = 0x0006800F
+	msAttAttachment     = 0x00069005
+	msAttMsgProps       = 0x00069003
+	msAttRecipTable     = 0x00069004
+	msAttSubject        = 0x00018004
+)
 
 // MS_Decode reads a winmail.dat the way Outlook does. Like Extract it is a
 // trust boundary: the bytes come from an unvetted message, so every offset
@@ -77,7 +94,7 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 	// and key(2).
 	for off := 6; off+9 <= len(blob); {
 		level := blob[off]
-		name := binary.LittleEndian.Uint32(blob[off+1:]) & 0xFFFF
+		id := binary.LittleEndian.Uint32(blob[off+1:])
 		length := int64(binary.LittleEndian.Uint32(blob[off+5:]))
 		start := int64(off + 9)
 		if start+length > int64(len(blob)) {
@@ -87,56 +104,82 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 		off = int(start+length) + 2
 
 		switch {
-		case level == 2 && name == 0x9002: // attAttachRendData opens an attachment
+		case level == 2 && id == msAttAttachRendData: // opens an attachment
 			cur = &msRawAttachment{}
 			atts = append(atts, cur)
 		case level == 2 && cur == nil:
 			// An attachment attribute before any attAttachRendData belongs to
 			// nothing; the upstream decoder dereferences nil here.
-		case level == 2 && name == 0x8010: // attAttachTitle
+		case level == 2 && id == msAttAttachTitle:
 			cur.title = email.DecodeString8(data)
-		case level == 2 && name == 0x800F: // attAttachData
+		case level == 2 && id == msAttAttachData:
 			cur.data = data
-		case level == 2 && name == 0x9005: // attAttachment
+		case level == 2 && id == msAttAttachment:
 			cur.props = msScanProps(data)
-		case level == 1 && name == 0x9003: // attMsgProps
+		case level == 1 && id == msAttMsgProps:
 			props := msScanProps(data)
 			d.CorrelationKey = strings.TrimRight(string(props[0x007F0102]), "\x00")
 			d.RTFCompressed = props[0x10090102]
 			d.MessageClass = msPropString(props, 0x001A)
-		case level == 1 && name == 0x9004: // attRecipTable
+			if s := msPropString(props, 0x0037); s != "" {
+				d.Subject = s
+			}
+		case level == 1 && id == msAttSubject:
+			if d.Subject == "" {
+				d.Subject = email.DecodeString8(data)
+			}
+		case level == 1 && id == msAttRecipTable:
 			d.Recipients = msScanRecipients(data)
 		}
 	}
 
 	for _, raw := range atts {
-		if att, ok := msBuildAttachment(raw); ok {
+		att, ok := msBuildAttachment(raw)
+		switch {
+		case ok:
 			d.Attachments = append(d.Attachments, att)
+		case raw.props[0x37050003] == nil:
+			d.Dropped++
 		}
 	}
 	return d, nil
 }
 
 // msBuildAttachment turns one container record into what Outlook lists.
+//
+// A record without attAttachment, or whose attAttachment lacks
+// PR_ATTACH_METHOD, is refused (measured: an empty property list, or one with
+// other properties only, is refused too); the other records of the container
+// are still extracted. A record without any name keeps no name: Outlook shows
+// it with an empty file name, not "Untitled Attachment".
 func msBuildAttachment(raw *msRawAttachment) (email.MSAttachment, bool) {
 	p := raw.props
+	if len(p[0x37050003]) < 4 {
+		return email.MSAttachment{}, false
+	}
 	att := email.MSAttachment{
 		ContentID: strings.Trim(msPropString(p, 0x3712), "<>"),
 		Hidden:    len(p[0x7FFE000B]) > 0 && p[0x7FFE000B][0] != 0,
 	}
-	method := uint32(0)
-	if v := p[0x37050003]; len(v) >= 4 {
-		method = binary.LittleEndian.Uint32(v)
-	}
+	method := binary.LittleEndian.Uint32(p[0x37050003])
 
 	// ATTACH_EMBEDDED_MSG: PR_ATTACH_DATA_OBJ is IID_IMessage, then the
-	// message as its own TNEF stream.
+	// message as its own TNEF stream. Without a display name Outlook shows
+	// the message's subject; the file name is derived from what is shown.
 	if obj := p[0x3701000D]; method == 5 && len(obj) > 16 && IsTNEFData(obj[16:]) {
 		att.Embedded = true
 		att.Data = obj[16:]
 		att.ContentType = "application/ms-tnef"
-		att.DisplayName = firstNonEmpty(msPropString(p, 0x3001), raw.title, msUntitledAttachment)
-		att.Filename = att.DisplayName
+		att.DisplayName = firstNonEmpty(msPropString(p, 0x3001), raw.title)
+		if att.DisplayName == "" {
+			if inner, err := MS_Decode(att.Data); err == nil {
+				att.DisplayName = inner.Subject
+			}
+		}
+		att.Filename = msPropString(p, 0x3707)
+		if att.Filename == "" {
+			att.Filename = email.MSAttachedMessageFileName(att.DisplayName)
+		}
 		return att, true
 	}
 
@@ -147,10 +190,10 @@ func msBuildAttachment(raw *msRawAttachment) (email.MSAttachment, bool) {
 	if att.Data == nil {
 		return att, false
 	}
-	att.Filename = firstNonEmpty(msPropString(p, 0x3707), raw.title, msUntitledAttachment)
+	att.Filename = firstNonEmpty(msPropString(p, 0x3707), raw.title)
 	att.DisplayName = firstNonEmpty(msPropString(p, 0x3001), att.Filename)
 	att.ContentType = msPropString(p, 0x370E)
-	if att.ContentType == "" {
+	if att.ContentType == "" && att.Filename != "" {
 		att.ContentType = mimeTypeFromFilename(att.Filename)
 	}
 	return att, true

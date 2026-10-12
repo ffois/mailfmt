@@ -5,8 +5,16 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 
+	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/korean"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/traditionalchinese"
 	"golang.org/x/text/transform"
 )
 
@@ -179,14 +187,59 @@ type rtfState struct {
 	inHTML  bool // current destination is \htmltag/\htmlbase – emit literally
 	skip    bool // current destination must be discarded entirely
 	uc      int  // \uc unicode fallback skip count
+	font    int  // current \fN
 }
 
 // DeEncapsulateHTML extracts the original HTML from \fromhtml RTF.
-func DeEncapsulateHTML(rtf []byte) string {
+func DeEncapsulateHTML(rtf []byte) string { return deEncapsulate(rtf, false) }
+
+// MS_DeEncapsulateHTML extracts the original HTML from \fromhtml RTF the way
+// Outlook 2010 does, decoding each \'XX byte in the code page of the current
+// font's \fcharset, as [MS-OXRTFEX] prescribes, instead of always in the
+// document's \ansicpg: a run in an Arabic font (\fcharset178) holds
+// Windows-1256 bytes, where 0x9D is U+200C, not an undefined Windows-1252
+// byte. Consecutive bytes in one code page are decoded together, so
+// double-byte code pages work.
+func MS_DeEncapsulateHTML(rtf []byte) string { return deEncapsulate(rtf, true) }
+
+// rtfWriter collects the output. In font-charset mode, bytes are held until
+// something else is written or the code page changes, then decoded together.
+type rtfWriter struct {
+	buf  bytes.Buffer
+	pend []byte
+	cp   int
+}
+
+func (w *rtfWriter) flush() {
+	if len(w.pend) > 0 {
+		w.buf.WriteString(decodeCodePage(w.pend, w.cp))
+		w.pend = w.pend[:0]
+	}
+}
+
+func (w *rtfWriter) WriteByte(b byte) error            { w.flush(); return w.buf.WriteByte(b) }
+func (w *rtfWriter) WriteRune(r rune) (int, error)     { w.flush(); return w.buf.WriteRune(r) }
+func (w *rtfWriter) WriteString(s string) (int, error) { w.flush(); return w.buf.WriteString(s) }
+
+func (w *rtfWriter) addByte(b byte, cp int) {
+	if len(w.pend) > 0 && cp != w.cp {
+		w.flush()
+	}
+	w.cp = cp
+	w.pend = append(w.pend, b)
+}
+
+func (w *rtfWriter) String() string { w.flush(); return w.buf.String() }
+
+func deEncapsulate(rtf []byte, fontCharsets bool) string {
 	cpg := detectCodePage(rtf)
 
-	var out bytes.Buffer
+	var out rtfWriter
 	st := rtfState{uc: 1}
+	var fonts map[int]int
+	if fontCharsets {
+		fonts, st.font = fontCodePages(rtf)
+	}
 	stack := make([]rtfState, 0, 16)
 	pendingStar := false
 	skipChars := 0 // pending unicode fallback characters to drop
@@ -194,6 +247,14 @@ func DeEncapsulateHTML(rtf []byte) string {
 	shouldEmit := func() bool { return !st.skip && (st.inHTML || !st.htmlrtf) }
 
 	emitByte := func(b byte) {
+		if fontCharsets {
+			cp := cpg
+			if fcp, ok := fonts[st.font]; ok && fcp != 0 {
+				cp = fcp
+			}
+			out.addByte(b, cp)
+			return
+		}
 		if cpg == 65001 || b < 0x80 {
 			out.WriteByte(b)
 		} else {
@@ -253,6 +314,13 @@ func DeEncapsulateHTML(rtf []byte) string {
 				i = j
 
 				switch word {
+				case "f":
+					if pendingStar {
+						st.skip = true // as for any other \* destination
+						pendingStar = false
+					} else if hasParam {
+						st.font = param
+					}
 				case "htmlrtf":
 					st.htmlrtf = !(hasParam && param == 0)
 				case "htmltag", "htmlbase":
@@ -354,6 +422,110 @@ func DeEncapsulateHTML(rtf []byte) string {
 	}
 
 	return out.String()
+}
+
+// rtfCharsetCodePage maps \fcharsetN to a Windows code page. 0 (ANSI), 1
+// (default) and 2 (symbol) map to 0: the document's \ansicpg applies.
+var rtfCharsetCodePage = map[int]int{
+	77: 10000, 128: 932, 129: 949, 130: 1361, 134: 936, 136: 950,
+	161: 1253, 162: 1254, 163: 1258, 177: 1255, 178: 1256, 186: 1257,
+	204: 1251, 222: 874, 238: 1250, 254: 437, 255: 850,
+}
+
+var (
+	reFontEntry = regexp.MustCompile(`\{\\f(\d+)[^{}]*?\\fcharset(\d+)`)
+	reDefFont   = regexp.MustCompile(`\\deff(\d+)`)
+)
+
+// fontCodePages reads the \fonttbl group: the code page of every font that
+// declares a \fcharset other than ANSI, and the default font (\deffN).
+func fontCodePages(rtf []byte) (map[int]int, int) {
+	fonts := map[int]int{}
+	deff := 0
+	if m := reDefFont.FindSubmatch(rtf); m != nil {
+		deff, _ = strconv.Atoi(string(m[1]))
+	}
+	start := bytes.Index(rtf, []byte(`{\fonttbl`))
+	if start < 0 {
+		return fonts, deff
+	}
+	depth, end := 0, len(rtf)
+	for i := start; i < len(rtf); i++ {
+		switch rtf[i] {
+		case '\\':
+			i++ // an escaped brace does not count
+		case '{':
+			depth++
+		case '}':
+			depth--
+		}
+		if depth == 0 {
+			end = i
+			break
+		}
+	}
+	for _, m := range reFontEntry.FindAllSubmatch(rtf[start:end], -1) {
+		n, _ := strconv.Atoi(string(m[1]))
+		cs, _ := strconv.Atoi(string(m[2]))
+		fonts[n] = rtfCharsetCodePage[cs]
+	}
+	return fonts, deff
+}
+
+// DecodeCodePage decodes text stored in a Windows code page (PR_INTERNET_CPID,
+// \ansicpg, \fcharset), with the same table MS_DeEncapsulateHTML uses.
+func DecodeCodePage(b []byte, cp int) string { return decodeCodePage(b, cp) }
+
+// decodeCodePage decodes bytes of one Windows code page; an unknown code page
+// is read as Windows-1252, and 65001 is taken as UTF-8 as it is.
+func decodeCodePage(b []byte, cp int) string {
+	var enc encoding.Encoding
+	switch cp {
+	case 65001:
+		return string(b)
+	case 1250:
+		enc = charmap.Windows1250
+	case 1251:
+		enc = charmap.Windows1251
+	case 1253:
+		enc = charmap.Windows1253
+	case 1254:
+		enc = charmap.Windows1254
+	case 1255:
+		enc = charmap.Windows1255
+	case 1256:
+		enc = charmap.Windows1256
+	case 1257:
+		enc = charmap.Windows1257
+	case 1258:
+		enc = charmap.Windows1258
+	case 874:
+		enc = charmap.Windows874
+	case 437:
+		enc = charmap.CodePage437
+	case 850:
+		enc = charmap.CodePage850
+	case 10000:
+		enc = charmap.Macintosh
+	case 932:
+		enc = japanese.ShiftJIS
+	case 936:
+		enc = simplifiedchinese.GBK
+	case 949:
+		enc = korean.EUCKR
+	case 950:
+		enc = traditionalchinese.Big5
+	}
+	if enc != nil {
+		if s, _, err := transform.String(enc.NewDecoder(), string(b)); err == nil {
+			return s
+		}
+	}
+	var sb strings.Builder
+	for _, c := range b {
+		sb.WriteRune(cp1252Table[c])
+	}
+	return sb.String()
 }
 
 // detectCodePage reads the \ansicpgN value from the RTF header (default 1252).

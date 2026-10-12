@@ -141,9 +141,14 @@ func TestMSReadFileKeepsPlainFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MS_ReadFile: %v", err)
 	}
-	if ms.Subject != plain.Subject || ms.From != plain.From || ms.Date != plain.Date ||
+	if ms.From != plain.From || ms.Date != plain.Date ||
 		strings.TrimSpace(ms.Body) != strings.TrimSpace(plain.Body) {
 		t.Errorf("plain fields differ:\n plain=%+v\n    ms=%+v", *plain, ms.Data)
+	}
+	// The plain reader drops the space before an encoded word; Outlook, as
+	// RFC 2047 says, keeps it.
+	if ms.Subject != "RE: Perché" {
+		t.Errorf("expected subject %q, got %q", "RE: Perché", ms.Subject)
 	}
 	if ms.ConversationTopic != "Perché" {
 		t.Errorf("expected topic %q, got %q", "Perché", ms.ConversationTopic)

@@ -147,7 +147,8 @@ func TestMSGeneratedNames(t *testing.T) {
 }
 
 // Read receipts are not attached, delivery reports become details.txt and an
-// attached message is Embedded, named after its subject.
+// attached message is Embedded, named after its subject plus its estimated
+// size (three quarters of the 57 bytes stored), and saved as .msg.
 func TestMSMessageParts(t *testing.T) {
 	raw := msMessage("", "multipart/report",
 		msText,
@@ -158,12 +159,101 @@ func TestMSMessageParts(t *testing.T) {
 	d := msParse(t, raw)
 
 	got := msNames(d.MSAttachments)
-	want := []string{"details.txt", "Messaggio originale.eml"}
+	want := []string{"details.txt", "Messaggio originale.eml (42 byte).msg"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("expected %v, got %v", want, got)
 	}
+	if name := d.MSAttachments[1].DisplayName; name != "Messaggio originale.eml (42 byte)" {
+		t.Errorf("expected the display name with the size, got %q", name)
+	}
 	if !d.MSAttachments[1].Embedded || !d.HasInnerEmail {
 		t.Errorf("expected an embedded message, got %+v", d.MSAttachments[1])
+	}
+}
+
+// The display name of an attached message is cut, keeping its extension, when
+// it does not fit next to the size in a buffer of 64 + 22 UTF-16 units.
+func TestMSSizedName(t *testing.T) {
+	long := strings.Repeat("a", 80) + ".eml"
+	cases := []struct {
+		name   string
+		rawLen int
+		want   string
+	}{
+		{"postacert.eml", 1176, "postacert.eml (882 byte)"},
+		{"postacert.eml", 425200, "postacert.eml (311 KB)"},
+		{"postacert.eml", 8966427, "postacert.eml (6,41 MB)"},
+		{strings.Repeat("b", 64), 100, strings.Repeat("b", 64) + " (75 byte)"},
+		// 84 units count as 64: 86 in all, 76 of them for the name and its NUL.
+		{long, 100, strings.Repeat("a", 68) + "....eml (75 byte)"},
+		{strings.Repeat("c", 80) + ". x", 100, strings.Repeat("c", 72) + "... (75 byte)"},
+	}
+	for _, tc := range cases {
+		if got := msSizedName(tc.name, tc.rawLen); got != tc.want {
+			t.Errorf("%q, %d: expected %q, got %q", tc.name, tc.rawLen, tc.want, got)
+		}
+	}
+}
+
+// The signature of a signed message is not an attachment; a signature that
+// is not a PKCS #7 structure makes the whole message unreadable.
+func TestMSSignedMessage(t *testing.T) {
+	signed := func(sig []byte) []byte {
+		return []byte("From: a@example.it\r\nSubject: firmato\r\nMIME-Version: 1.0\r\n" +
+			"Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"S\"\r\n\r\n" +
+			"--S\r\nContent-Type: multipart/mixed; boundary=\"M\"\r\n\r\n" +
+			"--M\r\nContent-Type: text/plain\r\n\r\ncorpo\r\n" +
+			"--M\r\nContent-Type: application/xml; name=\"daticert.xml\"\r\n\r\n<a/>\r\n--M--\r\n" +
+			"--S\r\nContent-Type: application/pkcs7-signature; name=\"smime.p7s\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+			base64.StdEncoding.EncodeToString(sig) + "\r\n--S--\r\n")
+	}
+
+	// ContentInfo { signedData, [0] { } }: the structure, not a valid signature.
+	valid := []byte{0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02, 0xA0, 0x02, 0x30, 0x00}
+	d, err := MS_Parse(signed(valid))
+	if err != nil {
+		t.Fatalf("MS_Parse: %v", err)
+	}
+	if got := strings.Join(msNames(d.MSAttachments), "|"); got != "daticert.xml" {
+		t.Errorf("expected only daticert.xml, got %v", got)
+	}
+
+	if _, err := MS_Parse(signed([]byte("FAKE-PKCS7-SIGNATURE"))); err == nil {
+		t.Error("expected an error for a signature that is not PKCS #7")
+	}
+	// The data OID is a ContentInfo, but not signedData.
+	data := []byte{0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01, 0xA0, 0x02, 0x04, 0x00}
+	if _, err := MS_Parse(signed(data)); err == nil {
+		t.Error("expected an error for a ContentInfo that is not signedData")
+	}
+}
+
+// Outlook drops the charset <meta> of an imported HTML body, nothing else.
+func TestMSStripCharsetMeta(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"<html><head>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\r\n</head>", "<html><head>\r\n\r\n</head>"},
+		{"<META CONTENT='text/html' HTTP-EQUIV=content-type>Testo", "Testo"},
+		{"<meta name=\"Generator\" content=\"Microsoft Word 15\">", "<meta name=\"Generator\" content=\"Microsoft Word 15\">"},
+	}
+	for _, tc := range cases {
+		if got := msStripCharsetMeta(tc.in); got != tc.want {
+			t.Errorf("%q: expected %q, got %q", tc.in, tc.want, got)
+		}
+	}
+}
+
+// Encoded words in any charset are decoded, and the space before one is kept.
+func TestMSDecodeHeaders(t *testing.T) {
+	raw := []byte("From: =?Windows-1252?Q?Societ=E0_Esempio?= <info@example.it>\r\n" +
+		"To: b@example.it\r\n" +
+		"Subject: =?Windows-1252?Q?De_Cuius_=96_Pratica?=\r\n" +
+		"\r\ncorpo\r\n")
+	d := msParse(t, raw)
+	if d.Subject != "De Cuius – Pratica" {
+		t.Errorf("subject: got %q", d.Subject)
+	}
+	if d.From != "\"Società Esempio\" <info@example.it>" {
+		t.Errorf("from: got %q", d.From)
 	}
 }
 
@@ -201,20 +291,23 @@ func TestMSRelatedStart(t *testing.T) {
 func msWinmail(msgProps []byte, title, data string) []byte {
 	var b bytes.Buffer
 	b.Write([]byte{0x78, 0x9F, 0x3E, 0x22, 0x01, 0x00})
-	attr := func(level byte, id uint16, payload []byte) {
+	attr := func(level byte, id, typ uint16, payload []byte) {
 		b.WriteByte(level)
 		binary.Write(&b, binary.LittleEndian, id)
-		binary.Write(&b, binary.LittleEndian, uint16(6))
+		binary.Write(&b, binary.LittleEndian, typ)
 		binary.Write(&b, binary.LittleEndian, uint32(len(payload)))
 		b.Write(payload)
 		b.Write([]byte{0, 0})
 	}
 	if msgProps != nil {
-		attr(1, 0x9003, msgProps)
+		attr(1, 0x9003, 6, msgProps)
 	}
-	attr(2, 0x9002, make([]byte, 14))
-	attr(2, 0x8010, append([]byte(title), 0))
-	attr(2, 0x800F, []byte(data))
+	attr(2, 0x9002, 6, make([]byte, 14))
+	attr(2, 0x8010, 1, append([]byte(title), 0)) // atpString, as Outlook writes it
+	attr(2, 0x800F, 6, []byte(data))
+	// attAttachment with PR_ATTACH_METHOD = ATTACH_BY_VALUE, which Outlook
+	// requires of every record.
+	attr(2, 0x9005, 6, []byte{1, 0, 0, 0, 0x03, 0x00, 0x05, 0x37, 1, 0, 0, 0})
 	return b.Bytes()
 }
 

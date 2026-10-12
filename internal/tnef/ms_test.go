@@ -73,10 +73,26 @@ func (t *msTNEF) recipients(rows ...[]msProp) *msTNEF {
 	return t
 }
 
+// attachment adds a record as Outlook writes one: attAttachRendData, the
+// title as atpString, the data, then attAttachment with PR_ATTACH_METHOD
+// (ATTACH_BY_VALUE unless props set another).
 func (t *msTNEF) attachment(title string, data []byte, props ...msProp) *msTNEF {
+	hasMethod := false
+	for _, p := range props {
+		hasMethod = hasMethod || p.tag == 0x37050003
+	}
+	if !hasMethod {
+		props = append([]msProp{{0x37050003, msLong(1)}}, props...)
+	}
+	return t.rawAttachment(title, 0x0001, data, props...)
+}
+
+// rawAttachment adds a record with the title written as the given attribute
+// type and attAttachment only when props are given.
+func (t *msTNEF) rawAttachment(title string, titleType uint16, data []byte, props ...msProp) *msTNEF {
 	appendAttr(&t.buf, 2, 0x9002, 0x0006, make([]byte, 14))
 	if title != "" {
-		appendAttr(&t.buf, 2, 0x8010, 0x0002, append([]byte(title), 0))
+		appendAttr(&t.buf, 2, 0x8010, titleType, append([]byte(title), 0))
 	}
 	if data != nil {
 		appendAttr(&t.buf, 2, 0x800F, 0x0006, data)
@@ -225,13 +241,14 @@ func TestMSDecodeKeepsEmbeddedMessage(t *testing.T) {
 		t.Fatalf("expected one attachment, got %d: %+v", len(d.Attachments), d.Attachments)
 	}
 	got := d.Attachments[0]
-	if !got.Embedded || got.Filename != "Re: Preventivo" || !bytes.Equal(got.Data, inner) {
+	if !got.Embedded || got.DisplayName != "Re: Preventivo" || got.Filename != "Re Preventivo.msg" ||
+		!bytes.Equal(got.Data, inner) {
 		t.Errorf("unexpected embedded attachment: %+v", got)
 	}
 }
 
 // The MAPI long filename and MIME tag win over the short title; a record
-// without any name is Untitled Attachment, as OLMAPI32 names it.
+// without any name keeps no name, as Outlook 2010 shows it.
 func TestMSDecodeAttachmentNames(t *testing.T) {
 	blob := newMSTNEF().
 		attachment("RELAZI~1.PDF", []byte("%PDF"),
@@ -250,8 +267,31 @@ func TestMSDecodeAttachmentNames(t *testing.T) {
 	if a := d.Attachments[0]; a.Filename != "relazione annuale.pdf" || a.ContentType != "application/pdf" {
 		t.Errorf("unexpected first attachment: %+v", a)
 	}
-	if a := d.Attachments[1]; a.Filename != "Untitled Attachment" {
-		t.Errorf("expected Untitled Attachment, got %q", a.Filename)
+	if a := d.Attachments[1]; a.Filename != "" || a.DisplayName != "" {
+		t.Errorf("expected no name, got %q / %q", a.Filename, a.DisplayName)
+	}
+}
+
+// What Outlook 2010 was measured to do with records it does not accept: one
+// without PR_ATTACH_METHOD in attAttachment is dropped while the others are
+// kept, and a title written as atpText instead of atpString is ignored.
+func TestMSDecodeRefusedRecords(t *testing.T) {
+	blob := newMSTNEF().
+		attachment("tenuto.txt", []byte("1")).
+		rawAttachment("senza-proprieta.txt", 0x0001, []byte("2")).
+		rawAttachment("senza-metodo.txt", 0x0001, []byte("3"), msProp{0x370B0003, msLong(0xFFFFFFFF)}).
+		rawAttachment("titolo-atptext.txt", 0x0002, []byte("4"), msProp{0x37050003, msLong(1)}).
+		bytes()
+
+	d, err := MS_Decode(blob)
+	if err != nil {
+		t.Fatalf("MS_Decode: %v", err)
+	}
+	if len(d.Attachments) != 2 || d.Dropped != 2 {
+		t.Fatalf("expected two attachments and two refused, got %d/%d: %+v", len(d.Attachments), d.Dropped, d.Attachments)
+	}
+	if d.Attachments[0].Filename != "tenuto.txt" || d.Attachments[1].Filename != "" || string(d.Attachments[1].Data) != "4" {
+		t.Errorf("unexpected attachments: %+v", d.Attachments)
 	}
 }
 

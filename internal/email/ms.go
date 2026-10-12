@@ -1,5 +1,12 @@
 package email
 
+import (
+	"encoding/base64"
+	"fmt"
+	"regexp"
+	"strings"
+)
+
 // MSImportance is PR_IMPORTANCE as Outlook stores it on a message.
 type MSImportance int
 
@@ -58,6 +65,38 @@ type MSData struct {
 	// RTFBody is the decompressed PR_RTF_COMPRESSED a winmail.dat carried,
 	// which Outlook copies onto the message. Empty when there was none.
 	RTFBody string `json:"rtfBody,omitempty"`
+}
+
+// MSResolveCIDs inlines every attachment an HTML body refers to by cid:, as
+// Outlook's HTML view resolves them against the message's attachments.
+func MSResolveCIDs(body string, atts []MSAttachment) string {
+	for _, a := range atts {
+		if a.ContentID == "" {
+			continue
+		}
+		mediaType := strings.TrimSpace(strings.Split(a.ContentType, ";")[0])
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		uri := fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(a.Data))
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+a.ContentID))
+		body = re.ReplaceAllLiteralString(body, uri)
+	}
+	return body
+}
+
+// MSPecFlags applies Build's PEC test to Outlook's attachment list. Outlook
+// does not list the signature of a signed message, so a signed message with
+// daticert.xml counts as a PEC as well as one listing smime.p7s.
+func MSPecFlags(atts []MSAttachment, signed bool) (isPec, hasInner bool) {
+	var datiCert, smime bool
+	for _, a := range atts {
+		name := strings.ToLower(a.Filename)
+		datiCert = datiCert || name == "daticert.xml"
+		smime = smime || name == "smime.p7s"
+		hasInner = hasInner || strings.HasSuffix(name, ".eml") || a.Embedded
+	}
+	return datiCert && (smime || signed), hasInner
 }
 
 // MSVisible returns the attachments Outlook lists: those not hidden.

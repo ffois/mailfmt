@@ -13,6 +13,7 @@ import (
 	"net/textproto"
 	"path"
 	"strings"
+	"unicode/utf16"
 
 	"golang.org/x/text/encoding/htmlindex"
 
@@ -43,6 +44,7 @@ type msPart struct {
 	children   []*msPart
 	parent     *msPart
 	data       []byte // decoded content of a leaf
+	rawLen     int    // length of the content as stored, before decoding
 	rendered   bool   // att:rendered, set on the parts chosen as body
 }
 
@@ -105,6 +107,7 @@ func msNewPart(h textproto.MIMEHeader, body []byte, parent *msPart, depth int) *
 		p.mediaType = "application/octet-stream"
 	}
 	p.data = msDecodeTransfer(body, h.Get("Content-Transfer-Encoding"))
+	p.rawLen = len(body)
 	return p
 }
 
@@ -290,26 +293,91 @@ func msExtension(mediaType string) string {
 	return ".dat"
 }
 
+// msWordDecoder decodes RFC 2047 encoded words in any charset the WHATWG
+// index knows, as MimeOLE does through the system's code pages; Go's default
+// decoder accepts only UTF-8, ISO-8859-1 and US-ASCII and leaves a
+// windows-1252 subject encoded.
+var msWordDecoder = &mime.WordDecoder{
+	CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
+		enc, err := htmlindex.Get(charset)
+		if err != nil {
+			return nil, err
+		}
+		return enc.NewDecoder().Reader(input), nil
+	},
+}
+
 func msDecodeWord(s string) string {
 	if s == "" {
 		return ""
 	}
-	if out, err := new(mime.WordDecoder).DecodeHeader(s); err == nil {
+	if out, err := msWordDecoder.DecodeHeader(s); err == nil {
 		return out
 	}
 	return s
 }
 
+// msSizedName is the display name MIMEToMAPI gives an attached message
+// (OUTLMIME.DLL FUN_3fe29d18 and FUN_3fe61f70): its name, then " (size)"
+// with the size as StrFormatByteSizeW formats it. The buffer holds the name,
+// counted up to 64 UTF-16 units, plus 22; when the name does not fit next to
+// the suffix it is cut and ends in "..." plus its extension (FUN_3fe61e7c).
+// The size is the part's estimated size, IMimeBody::GetEstimatedSize: three
+// quarters of the content as stored, as measured on every sample.
+func msSizedName(name string, rawLen int) string {
+	suffix := " (" + email.MSFormatByteSize(int64(rawLen)*3/4) + ")"
+	units := utf16.Encode([]rune(name))
+	buf := min(len(units), 64) + 22
+	room := buf - len(utf16.Encode([]rune(suffix))) // for the name and its NUL
+	if len(units) < room {
+		return name + suffix
+	}
+	ext := utf16.Encode([]rune(msPathFindExtension(name)))
+	keep := room - 1 - 3 - len(ext)
+	if keep < 0 {
+		return "" // StringCchCopy fails and the name is cleared
+	}
+	return string(utf16.Decode(units[:keep])) + "..." + string(utf16.Decode(ext)) + suffix
+}
+
+// msPathFindExtension is shlwapi's PathFindExtensionW: the last dot of the
+// name that is not followed by a space or a backslash, through the end.
+func msPathFindExtension(name string) string {
+	last := -1
+	for i, r := range name {
+		switch r {
+		case '\\', ' ':
+			last = -1
+		case '.':
+			last = i
+		}
+	}
+	if last < 0 {
+		return ""
+	}
+	return name[last:]
+}
+
+// msIsSignature reports the signature part of a multipart/signed root: the
+// S/MIME layer consumes it, so it never becomes an attachment.
+func msIsSignature(root, p *msPart) bool {
+	if p.parent != root || !root.is("multipart/signed") {
+		return false
+	}
+	_, s := p.typ()
+	return s == "pkcs7-signature" || s == "x-pkcs7-signature"
+}
+
 // msCollect is GetAttachments (FUN_3fe23d06) followed by the per-part
 // conversion (FUN_3fe703d3, FUN_3fe6fc0d, FUN_3fe6dac8): every non-empty
 // leaf not chosen as body becomes an attachment, in document order, except
-// read receipts.
+// read receipts and the signature of a signed message.
 func msCollect(root *msPart, hasHTML bool) []email.MSAttachment {
 	var namer msNamer
 	var out []email.MSAttachment
 
 	msWalk(root, func(p *msPart) {
-		if p.multipart() || p.rendered || len(p.data) == 0 {
+		if p.multipart() || p.rendered || len(p.data) == 0 || msIsSignature(root, p) {
 			return
 		}
 		if p.is("message/disposition-notification") {
@@ -323,13 +391,17 @@ func msCollect(root *msPart, hasHTML bool) []email.MSAttachment {
 		switch {
 		case p.is("message/delivery-status"):
 			att.Filename = "details.txt"
+			att.DisplayName = att.Filename
 		case p.is("message/rfc822"):
+			// An attached message is shown with its size and saved under a
+			// name Outlook derives from that display name.
 			att.Embedded = true
-			att.Filename = namer.filename(p, msInnerSubject(p.data))
+			att.DisplayName = msSizedName(namer.filename(p, msInnerSubject(p.data)), p.rawLen)
+			att.Filename = email.MSAttachedMessageFileName(att.DisplayName)
 		default:
 			att.Filename = namer.filename(p, "")
+			att.DisplayName = att.Filename
 		}
-		att.DisplayName = att.Filename
 
 		att.ContentID, att.ContentLocation = msReferences(p)
 		if hasHTML && p.disp != "attachment" && (att.ContentID != "" || att.ContentLocation != "") {

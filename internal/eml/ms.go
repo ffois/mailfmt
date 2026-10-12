@@ -2,7 +2,8 @@ package eml
 
 import (
 	"bytes"
-	"encoding/base64"
+	"encoding/asn1"
+	"errors"
 	"fmt"
 	"net/mail"
 	"net/textproto"
@@ -53,10 +54,15 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
 	}
+	if err := msCheckSignature(tree); err != nil {
+		return nil, err
+	}
 
 	// Addresses, subject and date as Build reads them; body and attachments
-	// are replaced below.
+	// are replaced below, and encoded words are decoded again with every
+	// charset, as MimeOLE decodes them.
 	data := build(parsed, func(a []email.Attachment) []email.Attachment { return a })
+	msDecodeHeaders(data, tree.header)
 
 	htmlPart := msFindTextBody(tree, "html")
 	textPart := msFindTextBody(tree, "plain")
@@ -76,7 +82,7 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 	}
 
 	if htmlPart != nil {
-		result.Body = msResolveCIDs(msBodyText(htmlPart), atts)
+		result.Body = email.MSResolveCIDs(msStripCharsetMeta(msBodyText(htmlPart)), atts)
 	} else {
 		result.Body = msBodyText(textPart)
 	}
@@ -96,7 +102,7 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 	}
 
 	result.Attachments = email.MSVisible(atts)
-	result.IsPec, result.HasInnerEmail = msPecFlags(atts)
+	result.IsPec, result.HasInnerEmail = email.MSPecFlags(atts, tree.is("multipart/signed"))
 	return result, nil
 }
 
@@ -104,22 +110,91 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 // strips from a text body: [[ name : n in container ]].
 var msTNEFTag = regexp.MustCompile(`\[\[ [^\]\r\n]*? : \d+ in [^\]\r\n]*? \]\]`)
 
-// msResolveCIDs inlines every attachment an HTML body refers to by cid:, as
-// Outlook's HTML view resolves them against the message's attachments.
-func msResolveCIDs(body string, atts []email.MSAttachment) string {
-	for _, a := range atts {
-		if a.ContentID == "" {
+// errMSSignature is what Outlook reports, "Il sistema di sicurezza
+// sottostante non è in grado di trovare il nome ID digitale", for a signed
+// message whose signature is not a PKCS #7 structure; the message is not
+// opened at all.
+var errMSSignature = errors.New("eml: S/MIME signature is not a PKCS #7 SignedData (Outlook cannot open the message)")
+
+// msCheckSignature refuses a multipart/signed message whose signature part
+// does not hold a DER ContentInfo of type signedData, as Outlook refuses it.
+// Only the structure is checked: Outlook opens messages whose signature does
+// not verify, so the certificates and the digest are not looked at.
+func msCheckSignature(root *msPart) error {
+	if !root.is("multipart/signed") {
+		return nil
+	}
+	proto := strings.ToLower(root.params["protocol"])
+	if proto != "application/pkcs7-signature" && proto != "application/x-pkcs7-signature" {
+		return nil
+	}
+	for _, c := range root.children {
+		if !msIsSignature(root, c) {
 			continue
 		}
-		mediaType := strings.TrimSpace(strings.Split(a.ContentType, ";")[0])
-		if mediaType == "" {
-			mediaType = "application/octet-stream"
+		var info struct {
+			ContentType asn1.ObjectIdentifier
+			Content     asn1.RawValue `asn1:"explicit,tag:0"`
 		}
-		uri := fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(a.Data))
-		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta("cid:"+a.ContentID))
-		body = re.ReplaceAllLiteralString(body, uri)
+		if rest, err := asn1.Unmarshal(c.data, &info); err != nil || len(rest) != 0 ||
+			!info.ContentType.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}) {
+			return errMSSignature
+		}
+		return nil
 	}
-	return body
+	return errMSSignature
+}
+
+// msDecodeHeaders decodes the subject and the addresses from the raw header
+// with msWordDecoder. A value Build already decoded comes out the same; one
+// in a charset Build does not know is now decoded, and display names stay
+// UTF-8 instead of being encoded again.
+func msDecodeHeaders(d *email.Data, h textproto.MIMEHeader) {
+	if s := h.Get("Subject"); s != "" {
+		d.Subject = email.ConvertToUTF8(msDecodeWord(s))
+	}
+	parser := mail.AddressParser{WordDecoder: msWordDecoder}
+	list := func(name string, fallback []string) []string {
+		v := h.Get(name)
+		if v == "" {
+			return fallback
+		}
+		addrs, err := parser.ParseList(v)
+		if err != nil {
+			return fallback
+		}
+		out := make([]string, 0, len(addrs))
+		for _, a := range addrs {
+			out = append(out, msFormatAddress(a))
+		}
+		return out
+	}
+	if from := list("From", nil); len(from) > 0 {
+		d.From = from[0]
+	}
+	d.To = list("To", d.To)
+	d.Cc = list("Cc", d.Cc)
+	d.Bcc = list("Bcc", d.Bcc)
+}
+
+// msFormatAddress writes an address as net/mail does for ASCII names,
+// `"Name" <addr>` or `<addr>`, but keeps a non-ASCII name as UTF-8.
+func msFormatAddress(a *mail.Address) string {
+	if a.Name == "" {
+		return "<" + a.Address + ">"
+	}
+	name := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(email.ConvertToUTF8(a.Name))
+	return `"` + name + `" <` + a.Address + ">"
+}
+
+// msCharsetMeta matches the <meta http-equiv="Content-Type"> element, which
+// Outlook removes from an imported HTML body: the body is stored in its own
+// code page, so the declared charset no longer applies. Nothing around the
+// element is touched.
+var msCharsetMeta = regexp.MustCompile(`(?is)<meta\b[^>]*\bhttp-equiv\s*=\s*["']?content-type\b[^>]*>`)
+
+func msStripCharsetMeta(html string) string {
+	return msCharsetMeta.ReplaceAllString(html, "")
 }
 
 // msApplyRecipients takes To/Cc/Bcc from a winmail.dat recipient table, which
@@ -140,18 +215,6 @@ func msApplyRecipients(d *email.Data, recips []tnef.MSRecipient) {
 			d.To = append(d.To, entry)
 		}
 	}
-}
-
-// msPecFlags applies Build's PEC test to Outlook's attachment list.
-func msPecFlags(atts []email.MSAttachment) (isPec, hasInner bool) {
-	var datiCert, smime bool
-	for _, a := range atts {
-		name := strings.ToLower(a.Filename)
-		datiCert = datiCert || name == "daticert.xml"
-		smime = smime || name == "smime.p7s"
-		hasInner = hasInner || strings.HasSuffix(name, ".eml") || a.Embedded
-	}
-	return datiCert && smime, hasInner
 }
 
 // msImportance resolves the three priority headers into PR_IMPORTANCE.

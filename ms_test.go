@@ -82,7 +82,7 @@ func TestMSParseFileMatchesParseFile(t *testing.T) {
 // The inner message of a PEC is the postacert.eml Outlook attaches to the
 // envelope, read with the same rules.
 func TestMSReadPecInnerEml(t *testing.T) {
-	path := filepath.Join("testdata", "pec", "signed.eml")
+	path := filepath.Join("testdata", "pec", "envelope.eml")
 
 	plain, err := mailfmt.ReadPecInnerEml(path)
 	if err != nil {
@@ -98,6 +98,11 @@ func TestMSReadPecInnerEml(t *testing.T) {
 
 	if _, err := mailfmt.MS_ReadPecInnerEml(filepath.Join("testdata", "pec", "no-postacert.eml")); err == nil {
 		t.Error("expected an error for an envelope without postacert.eml")
+	}
+	// signed.eml carries a placeholder instead of a PKCS #7 signature, and
+	// Outlook 2010 refuses to open it.
+	if _, err := mailfmt.MS_ReadPecInnerEml(filepath.Join("testdata", "pec", "signed.eml")); err == nil {
+		t.Error("expected an error for an envelope whose signature is not PKCS #7")
 	}
 }
 
