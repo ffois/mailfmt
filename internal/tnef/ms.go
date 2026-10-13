@@ -192,10 +192,8 @@ func msBuildAttachment(raw *msRawAttachment) (email.MSAttachment, bool) {
 	}
 	att.Filename = firstNonEmpty(msPropString(p, 0x3707), raw.title)
 	att.DisplayName = firstNonEmpty(msPropString(p, 0x3001), att.Filename)
+	// PR_ATTACH_MIME_TAG only: Outlook does not guess one from the name.
 	att.ContentType = msPropString(p, 0x370E)
-	if att.ContentType == "" && att.Filename != "" {
-		att.ContentType = mimeTypeFromFilename(att.Filename)
-	}
 	return att, true
 }
 
@@ -359,7 +357,9 @@ func firstNonEmpty(s ...string) string {
 //     must carry the same PR_TNEF_CORRELATION_KEY, compared case-insensitively;
 //     a mismatch, or a container with no key, leaves winmail.dat untouched;
 //   - an attached message stays one attachment instead of being flattened;
-//   - once decoding succeeds the container is removed even if it held no files.
+//   - once decoding succeeds the container is removed even if it held no
+//     files, and what it held follows every other attachment of the message,
+//     whatever the container's place among them.
 //
 // correlator is the X-MS-TNEF-Correlator header value, empty when absent. The
 // decoded container is returned too, nil when nothing was decoded.
@@ -384,8 +384,8 @@ func MS_Expand(atts []email.MSAttachment, correlator string) ([]email.MSAttachme
 
 	result := make([]email.MSAttachment, 0, len(atts)-1+len(d.Attachments))
 	result = append(result, atts[:idx]...)
-	result = append(result, d.Attachments...)
-	return append(result, atts[idx+1:]...), d
+	result = append(result, atts[idx+1:]...)
+	return append(result, d.Attachments...), d
 }
 
 // msIsTNEFAttachment is the test OUTLMIME.DLL runs on each attachment part.

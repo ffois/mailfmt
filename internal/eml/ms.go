@@ -2,9 +2,9 @@ package eml
 
 import (
 	"bytes"
-	"encoding/asn1"
 	"errors"
 	"fmt"
+	"mime"
 	"net/mail"
 	"net/textproto"
 	"os"
@@ -40,12 +40,73 @@ func MS_ReadFile(filePath string) (*email.MSData, error) {
 //     body; read receipts are dropped, delivery reports become details.txt
 //     and attached messages are Embedded;
 //   - winmail.dat is expanded by tnef.MS_Expand: its compressed RTF is kept
-//     in RTFBody, a Report.* message takes its recipients from it, and
-//     without a correlator its attachment tags are stripped from a plain
-//     text body;
+//     in RTFBody, and with a correlator HTML encapsulated in it is the body;
+//     a Report.* message takes its recipients from it, and without a
+//     correlator its attachment tags are stripped from a plain text body;
 //   - Importance, X-Priority and X-MSMail-Priority become Importance, the
 //     subject a ConversationTopic, and a non-zero X-Unsent marks a draft.
 func MS_Parse(raw []byte) (*email.MSData, error) {
+	p, err := msParseMessage(raw)
+	if err != nil {
+		return nil, err
+	}
+	return p.data, nil
+}
+
+// MS_ParseAttached reads data, an attached message of the MIME message
+// parent, the way Outlook shows it when it is opened from the attachment
+// list: as MS_Parse reads it, except that inside a clear-signed (S/MIME
+// multipart/signed) parent a message whose winmail.dat was decoded keeps
+// only its attached messages. Its other attachments, MIME parts and TNEF
+// records alike, are not there.
+//
+// Measured on Outlook 2010: the same message attached to an unsigned parent
+// keeps every attachment, and one without a winmail.dat keeps them in a
+// signed parent too.
+func MS_ParseAttached(parent, data []byte) (*email.MSData, error) {
+	p, err := msParseMessage(data)
+	if err != nil {
+		return nil, err
+	}
+	if !p.tnef || !msClearSignedMessage(parent) {
+		return p.data, nil
+	}
+	var kept []email.MSAttachment
+	for _, a := range p.data.MSAttachments {
+		if a.Embedded {
+			kept = append(kept, a)
+		}
+	}
+	p.data.MSAttachments = kept
+	p.data.Attachments = email.MSVisible(kept)
+	p.data.IsPec, p.data.HasInnerEmail = email.MSPecFlags(kept, p.signed)
+	return p.data, nil
+}
+
+// msClearSignedMessage reports whether the message in raw is an S/MIME
+// clear-signed one, from its header alone.
+func msClearSignedMessage(raw []byte) bool {
+	parsed, err := mimeparse.ParseHeader(bytes.NewReader(raw))
+	if err != nil {
+		return false
+	}
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	return err == nil && strings.EqualFold(mediaType, "multipart/signed") && msPKCS7Protocol(params["protocol"])
+}
+
+func msPKCS7Protocol(protocol string) bool {
+	p := strings.ToLower(protocol)
+	return p == "application/pkcs7-signature" || p == "application/x-pkcs7-signature"
+}
+
+// msParsed is a message read by msParseMessage, with what MS_ParseAttached needs.
+type msParsed struct {
+	data   *email.MSData
+	tnef   bool // a winmail.dat was decoded
+	signed bool // the message is multipart/signed
+}
+
+func msParseMessage(raw []byte) (*msParsed, error) {
 	parsed, err := mimeparse.ParseHeader(bytes.NewReader(raw))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
@@ -88,9 +149,15 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 	}
 
 	if decoded != nil {
+		result.DroppedAttachments = decoded.Dropped
 		if len(decoded.RTFCompressed) > 0 {
 			if out, err := rtf.Decompress(decoded.RTFCompressed); err == nil {
 				result.RTFBody = string(out)
+				// With a correlator the container's properties become the
+				// message's: HTML encapsulated in its RTF is the body.
+				if correlator != "" && rtf.IsEncapsulatedHTML(out) {
+					result.Body = email.MSResolveCIDs(rtf.MS_DeEncapsulateHTML(out), atts)
+				}
 			}
 		}
 		if tree.is("multipart/report") && len(decoded.Recipients) > 0 {
@@ -103,7 +170,7 @@ func MS_Parse(raw []byte) (*email.MSData, error) {
 
 	result.Attachments = email.MSVisible(atts)
 	result.IsPec, result.HasInnerEmail = email.MSPecFlags(atts, tree.is("multipart/signed"))
-	return result, nil
+	return &msParsed{data: result, tnef: decoded != nil, signed: tree.is("multipart/signed")}, nil
 }
 
 // msTNEFTag is the attachment position tag ITnef::OpenTaggedBody reads and
@@ -117,32 +184,140 @@ var msTNEFTag = regexp.MustCompile(`\[\[ [^\]\r\n]*? : \d+ in [^\]\r\n]*? \]\]`)
 var errMSSignature = errors.New("eml: S/MIME signature is not a PKCS #7 SignedData (Outlook cannot open the message)")
 
 // msCheckSignature refuses a multipart/signed message whose signature part
-// does not hold a DER ContentInfo of type signedData, as Outlook refuses it.
+// does not hold a BER ContentInfo of type signedData, as Outlook refuses it.
 // Only the structure is checked: Outlook opens messages whose signature does
 // not verify, so the certificates and the digest are not looked at.
+//
+// BER, not DER: the signatures PEC providers send use indefinite lengths
+// (30 80 … 00 00), which encoding/asn1 does not accept.
 func msCheckSignature(root *msPart) error {
 	if !root.is("multipart/signed") {
 		return nil
 	}
-	proto := strings.ToLower(root.params["protocol"])
-	if proto != "application/pkcs7-signature" && proto != "application/x-pkcs7-signature" {
+	if !msPKCS7Protocol(root.params["protocol"]) {
 		return nil
 	}
 	for _, c := range root.children {
 		if !msIsSignature(root, c) {
 			continue
 		}
-		var info struct {
-			ContentType asn1.ObjectIdentifier
-			Content     asn1.RawValue `asn1:"explicit,tag:0"`
-		}
-		if rest, err := asn1.Unmarshal(c.data, &info); err != nil || len(rest) != 0 ||
-			!info.ContentType.Equal(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2}) {
+		if !msIsSignedData(c.data) {
 			return errMSSignature
 		}
 		return nil
 	}
 	return errMSSignature
+}
+
+// msSignedDataOID is the DER content of OID 1.2.840.113549.1.7.2.
+var msSignedDataOID = []byte{0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02}
+
+// msIsSignedData reports whether b starts with a well-formed BER
+// ContentInfo { signedData, [0] SignedData }, the SignedData holding a
+// version, a SET of digest algorithms, an encapsulated ContentInfo,
+// optional [0] certificates and [1] CRLs, and a SET of signer infos.
+//
+// Measured: Outlook opens a message whose SignedData has no certificate and
+// no signer at all, but not one that stops after the version.
+func msIsSignedData(b []byte) bool {
+	tag, info, _, err := msBERElement(b, 0)
+	if err != nil || tag != 0x30 {
+		return false
+	}
+	tag, oid, rest, err := msBERElement(info, 0)
+	if err != nil || tag != 0x06 || !bytes.Equal(oid, msSignedDataOID) {
+		return false
+	}
+	tag, explicit, _, err := msBERElement(rest, 0)
+	if err != nil || tag != 0xA0 {
+		return false
+	}
+	tag, signed, _, err := msBERElement(explicit, 0)
+	if err != nil || tag != 0x30 {
+		return false
+	}
+	var tags []byte
+	var encap []byte
+	for len(signed) > 0 {
+		t, content, next, err := msBERElement(signed, 0)
+		if err != nil {
+			return false
+		}
+		if len(tags) == 2 {
+			encap = content
+		}
+		tags = append(tags, t)
+		signed = next
+	}
+	if len(tags) < 4 || tags[0] != 0x02 || tags[1] != 0x31 || tags[2] != 0x30 || tags[len(tags)-1] != 0x31 {
+		return false
+	}
+	for _, t := range tags[3 : len(tags)-1] {
+		if t != 0xA0 && t != 0xA1 {
+			return false
+		}
+	}
+	t, _, _, err := msBERElement(encap, 0)
+	return err == nil && t == 0x06
+}
+
+// msMaxBERDepth bounds the nesting msBERElement walks for an indefinite
+// length; the signature comes from the message, so it is untrusted.
+const msMaxBERDepth = 64
+
+var errMSBER = errors.New("eml: malformed BER")
+
+// msBERElement splits the BER element at the start of b into its first
+// identifier octet, its contents and the bytes after it. An indefinite length
+// (constructed elements only) runs to the end-of-contents octets, which are
+// found by walking the nested elements; they are not part of the contents.
+func msBERElement(b []byte, depth int) (tag byte, content, rest []byte, err error) {
+	if depth > msMaxBERDepth || len(b) < 2 {
+		return 0, nil, nil, errMSBER
+	}
+	tag, i := b[0], 1
+	if tag&0x1F == 0x1F { // high tag number: base-128 digits, last one < 0x80
+		for i < len(b) && b[i]&0x80 != 0 {
+			i++
+		}
+		i++
+	}
+	if i >= len(b) {
+		return 0, nil, nil, errMSBER
+	}
+	l := int(b[i])
+	i++
+	switch {
+	case l == 0x80:
+		if tag&0x20 == 0 {
+			return 0, nil, nil, errMSBER
+		}
+		start := i
+		for {
+			if i+1 < len(b) && b[i] == 0 && b[i+1] == 0 {
+				return tag, b[start:i], b[i+2:], nil
+			}
+			_, _, next, err := msBERElement(b[i:], depth+1)
+			if err != nil {
+				return 0, nil, nil, err
+			}
+			i = len(b) - len(next)
+		}
+	case l > 0x80:
+		n := l - 0x80
+		if n > 4 || i+n > len(b) {
+			return 0, nil, nil, errMSBER
+		}
+		l = 0
+		for _, d := range b[i : i+n] {
+			l = l<<8 | int(d)
+		}
+		i += n
+	}
+	if l < 0 || l > len(b)-i {
+		return 0, nil, nil, errMSBER
+	}
+	return tag, b[i : i+l], b[i+l:], nil
 }
 
 // msDecodeHeaders decodes the subject and the addresses from the raw header
@@ -180,11 +355,7 @@ func msDecodeHeaders(d *email.Data, h textproto.MIMEHeader) {
 // msFormatAddress writes an address as net/mail does for ASCII names,
 // `"Name" <addr>` or `<addr>`, but keeps a non-ASCII name as UTF-8.
 func msFormatAddress(a *mail.Address) string {
-	if a.Name == "" {
-		return "<" + a.Address + ">"
-	}
-	name := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(email.ConvertToUTF8(a.Name))
-	return `"` + name + `" <` + a.Address + ">"
+	return email.MSFormatAddress(email.ConvertToUTF8(a.Name), a.Address)
 }
 
 // msCharsetMeta matches the <meta http-equiv="Content-Type"> element, which

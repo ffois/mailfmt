@@ -208,9 +208,9 @@ func TestMSSignedMessage(t *testing.T) {
 			base64.StdEncoding.EncodeToString(sig) + "\r\n--S--\r\n")
 	}
 
-	// ContentInfo { signedData, [0] { } }: the structure, not a valid signature.
-	valid := []byte{0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02, 0xA0, 0x02, 0x30, 0x00}
-	d, err := MS_Parse(signed(valid))
+	// A SignedData with no certificate and no signer: the structure, not a
+	// valid signature, which Outlook opens.
+	d, err := MS_Parse(signed(msTestSignedData))
 	if err != nil {
 		t.Fatalf("MS_Parse: %v", err)
 	}
@@ -218,14 +218,43 @@ func TestMSSignedMessage(t *testing.T) {
 		t.Errorf("expected only daticert.xml, got %v", got)
 	}
 
-	if _, err := MS_Parse(signed([]byte("FAKE-PKCS7-SIGNATURE"))); err == nil {
-		t.Error("expected an error for a signature that is not PKCS #7")
+	// PEC providers sign with BER indefinite lengths, closed by 00 00, and
+	// the decoded part may carry padding after the structure.
+	if _, err := MS_Parse(signed(append(msTestSignedDataBER, 0, 0))); err != nil {
+		t.Errorf("expected a BER indefinite-length signature to be accepted, got %v", err)
 	}
-	// The data OID is a ContentInfo, but not signedData.
-	data := []byte{0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01, 0xA0, 0x02, 0x04, 0x00}
-	if _, err := MS_Parse(signed(data)); err == nil {
-		t.Error("expected an error for a ContentInfo that is not signedData")
+
+	for name, sig := range map[string][]byte{
+		// An indefinite length without its end-of-contents octets is not BER.
+		"unterminated indefinite length": msTestSignedDataBER[:len(msTestSignedDataBER)-4],
+		"not PKCS #7":                    []byte("FAKE-PKCS7-SIGNATURE"),
+		// A ContentInfo, but of data, not signedData.
+		"data ContentInfo": {0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01, 0xA0, 0x02, 0x04, 0x00},
+		// A SignedData that stops after its version: Outlook refuses it.
+		"SignedData with a version only": {0x30, 0x80, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02,
+			0xA0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	} {
+		if _, err := MS_Parse(signed(sig)); err == nil {
+			t.Errorf("%s: expected the message refused", name)
+		}
 	}
+}
+
+// msTestSignedData is a DER ContentInfo { signedData, SignedData { version 1,
+// digestAlgorithms {}, encapContentInfo { data }, signerInfos {} } }.
+var msTestSignedData = []byte{
+	0x30, 0x23, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02,
+	0xA0, 0x16, 0x30, 0x14, 0x02, 0x01, 0x01, 0x31, 0x00,
+	0x30, 0x0B, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01,
+	0x31, 0x00,
+}
+
+// msTestSignedDataBER is msTestSignedData with indefinite lengths.
+var msTestSignedDataBER = []byte{
+	0x30, 0x80, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02,
+	0xA0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x31, 0x00,
+	0x30, 0x80, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01, 0x00, 0x00,
+	0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 }
 
 // Outlook drops the charset <meta> of an imported HTML body, nothing else.
@@ -361,5 +390,106 @@ func TestMSWinmailReportRecipients(t *testing.T) {
 
 	if len(d.Cc) != 1 || d.Cc[0] != "Anna Ferri" || len(d.To) != 0 {
 		t.Errorf("expected the TNEF recipients, got To=%v Cc=%v", d.To, d.Cc)
+	}
+}
+
+// What a winmail.dat holds follows the message's other attachments, and an
+// attachment without PR_ATTACH_MIME_TAG gets no MIME type from its name.
+func TestMSWinmailAttachmentsLast(t *testing.T) {
+	note := "Content-Type: text/plain; name=\"c.txt\"\r\nContent-Disposition: attachment; filename=\"c.txt\"\r\n\r\nterzo"
+	raw := msMessage("", "multipart/mixed", msText, msWinmailPart(msWinmail(nil, "a.txt", "primo")), note)
+
+	d := msParse(t, raw)
+
+	if got := strings.Join(msNames(d.MSAttachments), " "); got != "c.txt a.txt" {
+		t.Fatalf("expected the TNEF attachment last, got %q", got)
+	}
+	if ct := d.MSAttachments[1].ContentType; ct != "" {
+		t.Errorf("expected no MIME type guessed for a.txt, got %q", ct)
+	}
+}
+
+// msBinaryProp is one PT_BINARY entry of a TNEF property list.
+func msBinaryProp(tag uint32, value []byte) []byte {
+	p := binary.LittleEndian.AppendUint32(nil, tag)
+	p = binary.LittleEndian.AppendUint32(p, 1)
+	p = binary.LittleEndian.AppendUint32(p, uint32(len(value)))
+	p = append(p, value...)
+	return append(p, make([]byte, (4-len(value)%4)%4)...)
+}
+
+// With a correlator, HTML encapsulated in the winmail.dat's RTF is the body,
+// not the MIME text part.
+func TestMSWinmailCorrelatedHTMLBody(t *testing.T) {
+	const key = "00000000C81200A879F4C247AA06319FDB2FAB40"
+	payload := []byte(`{\rtf1\ansi\ansicpg1252\fromhtml1 \deff0{\fonttbl{\f0\fswiss Arial;}}` +
+		`{\*\htmltag64 <p>}Corpo HTML{\*\htmltag72 </p>}}`)
+	rtfStream := make([]byte, 16, 16+len(payload))
+	binary.LittleEndian.PutUint32(rtfStream[0:], uint32(len(payload)+12))
+	binary.LittleEndian.PutUint32(rtfStream[4:], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(rtfStream[8:], 0x414C454D) // "MELA": not compressed
+	rtfStream = append(rtfStream, payload...)
+
+	props := binary.LittleEndian.AppendUint32(nil, 2)
+	props = append(props, msBinaryProp(0x007F0102, append([]byte(key), 0))...)
+	props = append(props, msBinaryProp(0x10090102, rtfStream)...)
+	blob := msWinmailPart(msWinmail(props, "nota.txt", "x"))
+
+	withKey := msParse(t, msMessage("X-MS-TNEF-Correlator: "+key+"\r\n", "multipart/mixed", msText, blob))
+	if withKey.Body != "<p>Corpo HTML</p>" {
+		t.Errorf("expected the HTML from the RTF, got %q", withKey.Body)
+	}
+	if without := msParse(t, msMessage("", "multipart/mixed", msText, blob)); without.Body != "corpo del messaggio" {
+		t.Errorf("expected the MIME text without a correlator, got %q", without.Body)
+	}
+}
+
+// Inside a clear-signed parent, an attached message whose winmail.dat is
+// decoded keeps only its attached messages; elsewhere it keeps everything.
+func TestMSParseAttached(t *testing.T) {
+	note := "Content-Type: text/plain; name=\"c.txt\"\r\nContent-Disposition: attachment; filename=\"c.txt\"\r\n\r\nterzo"
+	nested := "Content-Type: message/rfc822\r\nContent-Disposition: attachment; filename=\"m.eml\"\r\n\r\n" +
+		"From: x@example.it\r\nSubject: Annidato\r\n\r\ncorpo"
+	withTNEF := msMessage("", "multipart/mixed", msText, msWinmailPart(msWinmail(nil, "a.txt", "primo")), note, nested)
+	withoutTNEF := msMessage("", "multipart/mixed", msText, note, nested)
+
+	unsigned := msMessage("", "multipart/mixed", msText)
+	signed := []byte("Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"S\"\r\n\r\n--S\r\n" +
+		msText + "\r\n--S\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+		base64.StdEncoding.EncodeToString(msTestSignedData) + "\r\n--S--\r\n")
+
+	cases := []struct {
+		name         string
+		parent, data []byte
+		want         string
+	}{
+		{"signed parent, winmail.dat", signed, withTNEF, "m.eml (34 byte).msg"},
+		{"unsigned parent, winmail.dat", unsigned, withTNEF, "c.txt m.eml (34 byte).msg a.txt"},
+		{"signed parent, no winmail.dat", signed, withoutTNEF, "c.txt m.eml (34 byte).msg"},
+	}
+	for _, tc := range cases {
+		d, err := MS_ParseAttached(tc.parent, tc.data)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got := strings.Join(msNames(d.MSAttachments), " "); got != tc.want {
+			t.Errorf("%s: expected %q, got %q", tc.name, tc.want, got)
+		}
+		if len(d.Attachments) != len(d.MSAttachments) {
+			t.Errorf("%s: Attachments not recomputed: %v", tc.name, d.Attachments)
+		}
+	}
+}
+
+// A winmail.dat record Outlook cannot open is left out and counted: Outlook
+// warns about it.
+func TestMSWinmailDroppedAttachment(t *testing.T) {
+	blob := msWinmail(nil, "a.txt", "primo")
+	blob = blob[:len(blob)-23] // without its attAttachment, so without PR_ATTACH_METHOD
+
+	d := msParse(t, msMessage("", "multipart/mixed", msText, msWinmailPart(blob)))
+
+	if len(d.MSAttachments) != 0 || d.DroppedAttachments != 1 {
+		t.Errorf("expected the record dropped and counted, got %v and %d", msNames(d.MSAttachments), d.DroppedAttachments)
 	}
 }

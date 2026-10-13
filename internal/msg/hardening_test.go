@@ -76,7 +76,8 @@ func craftedRoot(size uint64) directoryEntry {
 	return e
 }
 
-// readCrafted calls Read on hostile bytes and insists it comes back - promptly,
+// readCrafted calls Read and MS_Read on hostile bytes and insists they come
+// back - promptly,
 // and without panicking. A recovered panic is reported as a normal failure so
 // one broken guard does not abort the whole test binary. A stack overflow
 // cannot be recovered and will still take the binary down, which is itself the
@@ -97,6 +98,8 @@ func readCrafted(t *testing.T, data []byte) error {
 			done <- res
 		}()
 		_, res.err = Read(bytes.NewReader(data))
+		// MS_Read walks the same tree, then more of it: it must come back too.
+		_, _ = MS_Read(bytes.NewReader(data))
 	}()
 
 	select {

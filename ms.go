@@ -11,6 +11,7 @@ import (
 	"github.com/ffois/mailfmt/internal/eml"
 	"github.com/ffois/mailfmt/internal/msg"
 	"github.com/ffois/mailfmt/internal/pec"
+	"github.com/ffois/mailfmt/internal/tnef"
 )
 
 // The MS_ functions mirror the readers above with the behaviour of Microsoft
@@ -88,6 +89,24 @@ func MS_ReadEmlFile(path string) (*MSEmailData, error) { return eml.MS_ReadFile(
 // as Outlook shows it when the attached message is opened. It fails when the
 // part is missing.
 func MS_ReadPecInnerEml(path string) (*MSEmailData, error) { return pec.MS_ReadInner(path) }
+
+// MS_ReadEmlAttachedMessage reads att, an attached message among the
+// MSAttachments MS_ReadEmlFile returns for the .eml at path, as Outlook shows
+// it when it is opened from the attachment list. Inside a clear-signed
+// message, one whose winmail.dat is decoded keeps only its attached messages.
+//
+// It fails for an attachment that is not an attached message in MIME form:
+// one carried in a winmail.dat is a TNEF stream.
+func MS_ReadEmlAttachedMessage(path string, att MSAttachment) (*MSEmailData, error) {
+	if !att.Embedded || tnef.IsTNEFData(att.Data) {
+		return nil, fmt.Errorf("mailfmt: %q is not an attached MIME message", att.Filename)
+	}
+	parent, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	return eml.MS_ParseAttached(parent, att.Data)
+}
 
 // MS_ReadMsgFile parses the Outlook MSG file at path, fixed-length
 // properties included.

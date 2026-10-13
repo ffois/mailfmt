@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -245,13 +246,19 @@ func buildCFB(root *cfbEntry) []byte {
 		writeDirEntry(dirBytes[i*directoryEntrySize:], e.name, objectType,
 			cfbNoStream, cfbNoStream, childID, startSect, size)
 	}
-	// Chain each entry's children as a right-only list. The reader walks left,
-	// appends, then walks right, so this preserves insertion order without
-	// needing a balanced tree.
+	// Chain each entry's children as a right-only list in [MS-CFB] name
+	// order. That is a valid binary search tree, which Windows needs to find
+	// a stream by name; this reader only walks it, left, self, right, and so
+	// sees the children in that order.
 	for _, e := range flat {
-		for i := 0; i+1 < len(e.children); i++ {
-			off := e.children[i].index*directoryEntrySize + dirOffRightSibling
-			binary.LittleEndian.PutUint32(dirBytes[off:], uint32(e.children[i+1].index))
+		sorted := append([]*cfbEntry(nil), e.children...)
+		sort.SliceStable(sorted, func(i, j int) bool { return cfbNameLess(sorted[i].name, sorted[j].name) })
+		if len(sorted) > 0 {
+			binary.LittleEndian.PutUint32(dirBytes[e.index*directoryEntrySize+dirOffChild:], uint32(sorted[0].index))
+		}
+		for i := 0; i+1 < len(sorted); i++ {
+			off := sorted[i].index*directoryEntrySize + dirOffRightSibling
+			binary.LittleEndian.PutUint32(dirBytes[off:], uint32(sorted[i+1].index))
 		}
 	}
 	// Padding entries stay zeroed: ObjectType 0 makes the reader skip them.
@@ -300,7 +307,8 @@ func buildCFB(root *cfbEntry) []byte {
 	binary.LittleEndian.PutUint16(header[28:], 0xFFFE) // little-endian
 	binary.LittleEndian.PutUint16(header[30:], 9)      // 512-byte sectors
 	binary.LittleEndian.PutUint16(header[32:], 6)      // 64-byte mini sectors
-	binary.LittleEndian.PutUint32(header[40:], uint32(len(sectors)))
+	// header[40:44], the directory sector count, must stay 0 in version 3:
+	// Windows refuses the file otherwise.
 	binary.LittleEndian.PutUint32(header[44:], uint32(fatSectorCount))
 	binary.LittleEndian.PutUint32(header[48:], dirStart)
 	binary.LittleEndian.PutUint32(header[56:], miniStreamCutoff)
@@ -321,6 +329,21 @@ func buildCFB(root *cfbEntry) []byte {
 		out = append(out, s...)
 	}
 	return out
+}
+
+// cfbNameLess is the [MS-CFB] order of sibling names: shorter first, then
+// by UTF-16 code unit after simple upper-casing.
+func cfbNameLess(a, b string) bool {
+	ua, ub := utf16.Encode([]rune(strings.ToUpper(a))), utf16.Encode([]rune(strings.ToUpper(b)))
+	if len(ua) != len(ub) {
+		return len(ua) < len(ub)
+	}
+	for i := range ua {
+		if ua[i] != ub[i] {
+			return ua[i] < ub[i]
+		}
+	}
+	return false
 }
 
 // Byte offsets inside a 128-byte directory entry, matching the field order of

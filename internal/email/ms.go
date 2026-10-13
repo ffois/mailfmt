@@ -65,6 +65,11 @@ type MSData struct {
 	// RTFBody is the decompressed PR_RTF_COMPRESSED a winmail.dat carried,
 	// which Outlook copies onto the message. Empty when there was none.
 	RTFBody string `json:"rtfBody,omitempty"`
+
+	// DroppedAttachments counts the winmail.dat records Outlook could not
+	// open and left out; when it is not zero Outlook warns "Impossibile
+	// aprire uno o più allegati" ("Cannot open one or more attachments").
+	DroppedAttachments int `json:"droppedAttachments,omitempty"`
 }
 
 // MSResolveCIDs inlines every attachment an HTML body refers to by cid:, as
@@ -97,6 +102,19 @@ func MSPecFlags(atts []MSAttachment, signed bool) (isPec, hasInner bool) {
 		hasInner = hasInner || strings.HasSuffix(name, ".eml") || a.Embedded
 	}
 	return datiCert && (smime || signed), hasInner
+}
+
+// MSFormatAddress writes a name and an address as the MS_ readers report
+// them: `"Name" <addr>`, `<addr>` without a name, the bare name without an
+// address. Unlike net/mail, a non-ASCII name stays UTF-8.
+func MSFormatAddress(name, address string) string {
+	switch {
+	case address == "":
+		return name
+	case name == "":
+		return "<" + address + ">"
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name) + `" <` + address + ">"
 }
 
 // MSVisible returns the attachments Outlook lists: those not hidden.

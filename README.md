@@ -52,17 +52,20 @@ richer low-level type returned by `Parse`.
 
 The `MS_` functions mirror the readers above with the behaviour of Microsoft
 Outlook 2010 (Office 14.0.7268.5000), as observed by reverse engineering
-`OUTLOOK.EXE`, `OLMAPI32.DLL` and `OUTLMIME.DLL`. They return `MSEmailData`,
-which embeds `EmailData` and adds `Importance`, `ConversationTopic`,
-`Unsent`, `RTFBody` and `MSAttachments`: every attachment Outlook creates,
+`OUTLOOK.EXE`, `OLMAPI32.DLL` and `OUTLMIME.DLL`, and checked against
+Outlook itself opening each file. They return `MSEmailData`, which embeds
+`EmailData` and adds `Importance`, `ConversationTopic`, `Unsent`, `RTFBody`,
+`DroppedAttachments` and `MSAttachments`: every attachment Outlook creates,
 with `DisplayName`, `ContentID`, `ContentLocation`, `Hidden` and `Embedded`.
 `EmailData.Attachments` holds the visible ones, as Outlook lists them.
+Addresses are written `"Name" <address>`, names kept in UTF-8.
 
 | Symbol | Purpose |
 |---|---|
 | `MS_ParseFile(path) (*MSEmailData, EmailFormat, error)` | detect by extension + parse; no PEC handling |
 | `MS_DetectEmailFormat(path) (EmailFormat, error)` | `.msg` / `.eml` by extension, as Windows hands files to Outlook |
 | `MS_ReadEmlFile(path) (*MSEmailData, error)` | MIME import as `IConverterSession::MIMEToMAPI` does it |
+| `MS_ReadEmlAttachedMessage(path, att) (*MSEmailData, error)` | an attached message of a `.eml`, opened from the attachment list |
 | `MS_ReadPecInnerEml(path) (*MSEmailData, error)` | the PEC's `postacert.eml`, opened as an attached message |
 | `MS_ReadMsgFile(path) (*MSEmailData, error)` | Outlook `.msg`, fixed-length properties included |
 | `MS_Read(io.ReaderAt) (*MSEmailData, error)` | Outlook `.msg` from a reader |
@@ -73,7 +76,8 @@ Where they differ from the plain readers:
   engine chooses them: a `multipart/related` root names it with `start=`;
   otherwise the first non-attachment `text/html` (`text/enriched` as a
   fallback) or `text/plain`, and inside `multipart/mixed` only the first
-  text-bearing part counts. Charsets are decoded.
+  text-bearing part counts. Charsets are decoded, and the
+  `<meta http-equiv="Content-Type">` of an HTML body is removed.
 - **EML attachments**: every other non-empty part, in document order; the
   alternatives of the body are not attachments. A later text part in
   `multipart/mixed` is one. Read receipts are dropped, delivery reports are
@@ -84,27 +88,62 @@ Where they differ from the plain readers:
   the extension Windows registers for the type when it has none; without a
   name the part's subject, else its `Content-Description`, else
   `Allegato senza titolo 00000` (the Italian template of this Office,
-  numbered per message), plus the extension.
-- **EML headers**: `Importance` from `Importance` / `X-Priority` /
-  `X-MSMail-Priority` (a valid `Importance` always wins);
-  `ConversationTopic` is the subject without a prefix of up to three
-  characters ending in `:`; `X-Unsent` read as a number.
+  numbered per message), plus the extension. An attached message is shown
+  as `name (size)`, the size being three quarters of the encoded part
+  formatted as Windows does (`postacert.eml (311 KB)`), cut to fit with
+  `...`; its file name is that, without the characters Outlook drops, plus
+  `.msg`.
+- **EML headers**: encoded words are decoded in any charset;
+  `Importance` from `Importance` / `X-Priority` / `X-MSMail-Priority` (a
+  valid `Importance` always wins); `ConversationTopic` is the subject
+  without a prefix of up to three characters ending in `:`; `X-Unsent` read
+  as a number.
+- **S/MIME, PEC**: in a `multipart/signed` message the signature is not an
+  attachment, and it must be a PKCS #7 `SignedData` (DER or BER: version,
+  digest algorithms, encapsulated content, signer infos) or the message is
+  refused, as Outlook refuses it. The signature is not verified. A signed
+  message with `daticert.xml` is a PEC.
 - **winmail.dat**: decoded only when typed `application/ms-tnef` or named
   `winmail.dat`, only the last such part, and only when its
   `PR_TNEF_CORRELATION_KEY` matches `X-MS-TNEF-Correlator` if the header is
-  present; once decoded it is removed even if empty. Attached messages stay
-  one `Embedded` attachment, files take their MAPI long name, unnamed ones
-  are `Untitled Attachment`. Its compressed RTF goes to `RTFBody`; for a
-  `multipart/report` its recipient table replaces To/Cc/Bcc; without a
-  correlator its `[[ name : n in winmail.dat ]]` tags are stripped from a
-  plain text body.
-- **MSG**: `__properties_version1.0` is read too, so `Importance`,
+  present; once decoded it is removed even if empty, and what it held
+  follows the other attachments. Attribute IDs are matched with their type.
+  A record without `PR_ATTACH_METHOD` is left out and counted in
+  `DroppedAttachments`, for which Outlook warns. Attached messages stay one
+  `Embedded` attachment; files take their MAPI long name (unnamed ones stay
+  unnamed) and only their own `PR_ATTACH_MIME_TAG`. Its compressed RTF goes
+  to `RTFBody`, and with a correlator the HTML encapsulated in it is the
+  body; for a `multipart/report` its recipient table replaces To/Cc/Bcc;
+  without a correlator its `[[ name : n in winmail.dat ]]` tags are
+  stripped from a plain text body.
+- **Attached messages**: opened with `MS_ReadEmlAttachedMessage` or
+  `MS_ReadPecInnerEml`, a message inside a clear-signed one keeps only its
+  attached messages when its `winmail.dat` was decoded: its other
+  attachments, MIME parts too, are not shown.
+- **MSG**: read as `OpenIMsgOnIStg` loads it. The file is refused when the
+  version 3 header declares directory sectors, when the message has no
+  `__properties_version1.0` (or one shorter than its 32-byte header),
+  no `__nameid_version1.0`, no listed `PR_MESSAGE_CLASS`, when an
+  attachment has no property stream, or when a string is of the wrong kind:
+  a message is Unicode with `STORE_UNICODE_OK` in `PR_STORE_SUPPORT_MASK`,
+  ANSI otherwise, and holds only strings of that kind. Only the properties
+  the property stream lists exist. Attachments and recipients are those
+  numbered below the next IDs of the header; a broken recipient leaves the
+  message with none, and attachments are shown only with `PR_HASATTACH` or
+  `MSGFLAG_HASATTACH`. To/Cc/Bcc come from the recipient table
+  (`PR_SMTP_ADDRESS`, else `PR_EMAIL_ADDRESS`). The body is `PR_HTML` (as
+  binary only, in `PR_INTERNET_CPID`), else the HTML encapsulated in the RTF
+  decoded with each font's charset, else the plain text. `Importance`,
   `Unsent` (`MSGFLAG_UNSENT`) and `Date` (`PR_CLIENT_SUBMIT_TIME`, else
-  `PR_MESSAGE_DELIVERY_TIME`) are filled; a property stream shorter than
-  its 32-byte header fails the read, as `MAPI_E_CORRUPT_DATA` does in
-  Outlook. Each attachment object is one attachment (a multipart one is not
-  opened); `PR_ATTACHMENT_HIDDEN`, or `ATT_INVISIBLE_IN_HTML` with an HTML
-  body, hides it; an attached message is `Embedded`.
+  `PR_MESSAGE_DELIVERY_TIME`) come from the fixed-length properties. Each
+  attachment object is one attachment (a multipart one is not opened);
+  `PR_ATTACHMENT_HIDDEN`, or `ATT_INVISIBLE_IN_HTML` with an HTML body,
+  hides it; an attached message is `Embedded`, named `PR_DISPLAY_NAME` with
+  the file name derived from it. An `IPM.Note.SMIME.MultipartSigned` message
+  shows the body and attachments of the signed entity it carries.
+- **Not modelled**: what Outlook only does on screen, such as joining the
+  lines of a plain text body; the strings Outlook generates are those of an
+  Italian Office.
 
 ## What it handles
 

@@ -106,6 +106,41 @@ func TestMSReadPecInnerEml(t *testing.T) {
 	}
 }
 
+// An attached message opened from the attachment list is the one
+// MS_ReadPecInnerEml reads for a PEC; any other attachment is refused.
+func TestMSReadEmlAttachedMessage(t *testing.T) {
+	path := filepath.Join("testdata", "pec", "envelope.eml")
+	envelope, err := mailfmt.MS_ReadEmlFile(path)
+	if err != nil {
+		t.Fatalf("MS_ReadEmlFile: %v", err)
+	}
+	pecInner, err := mailfmt.MS_ReadPecInnerEml(path)
+	if err != nil {
+		t.Fatalf("MS_ReadPecInnerEml: %v", err)
+	}
+
+	var opened int
+	for _, att := range envelope.MSAttachments {
+		inner, err := mailfmt.MS_ReadEmlAttachedMessage(path, att)
+		if !att.Embedded {
+			if err == nil {
+				t.Errorf("%s: expected an error for an attachment that is not a message", att.Filename)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", att.Filename, err)
+		}
+		opened++
+		if inner.Subject != pecInner.Subject || len(inner.MSAttachments) != len(pecInner.MSAttachments) {
+			t.Errorf("expected the PEC inner message, got subject %q", inner.Subject)
+		}
+	}
+	if opened != 1 {
+		t.Errorf("expected one attached message, opened %d", opened)
+	}
+}
+
 // A file whose extension Outlook has no association for is refused, and a
 // .msg that is really MIME fails to parse instead of being sniffed as EML.
 func TestMSParseFileTrustsExtension(t *testing.T) {

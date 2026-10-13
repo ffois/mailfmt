@@ -12,9 +12,10 @@ import (
 var updateTestdata = flag.Bool("update", false, "rewrite the generated .msg fixtures")
 
 // The .msg fixtures are generated rather than derived from real mail: a
-// compound file cannot be anonymised by substituting text. This test writes
-// them when -update is passed and otherwise checks they are still in sync,
-// so a change to the writer cannot silently diverge from what is committed.
+// compound file cannot be anonymised by substituting text. outlookMSG makes
+// each one a message Outlook 2010 opens. This test writes them when -update
+// is passed and otherwise checks they are still in sync, so a change to the
+// writer cannot silently diverge from what is committed.
 func TestGenerateMSGTestdata(t *testing.T) {
 	dir := filepath.Join("..", "..", "testdata", "msg")
 
@@ -58,8 +59,8 @@ func fixtureUnicodeProps() []byte {
 	root.addStream(substgName(pidTagSenderEmailAddress, propTypeString), utf16LE("anna.ferri@example.it"))
 	root.addStream(substgName(pidTagDisplayTo, propTypeString), utf16LE("ufficio@example.it"))
 	root.addStream(substgName(pidTagDisplayCc, propTypeString), utf16LE("copia@example.it; altra@example.it"))
-	root.addStream(substgName(pidTagBodyHTML, propTypeString), utf16LE("<html><body>In allegato il preventivo.</body></html>"))
-	return buildCFB(root)
+	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte("<html><body>In allegato il preventivo.</body></html>"))
+	return buildCFB(outlookMSG(root, nil))
 }
 
 // PT_STRING8 properties hold single-byte text; accents come back through the
@@ -70,20 +71,20 @@ func fixtureString8Props() []byte {
 		'P', 'e', 'r', 'c', 'h', 0xE9, ' ', 'n', 'o', // "Perché no" in cp1252
 	})
 	root.addStream(substgName(pidTagBody, propTypeString8), []byte("Testo semplice\r\ncon due righe"))
-	return buildCFB(root)
+	return buildCFB(outlookMSG(root, nil))
 }
 
 // An attachment is a storage under the root, holding its own property streams.
 func fixtureWithAttachment() []byte {
 	root := &cfbEntry{name: "Root Entry"}
 	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("Con allegato"))
-	root.addStream(substgName(pidTagBodyHTML, propTypeString), utf16LE("<html><body>Vedi allegato.</body></html>"))
+	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte("<html><body>Vedi allegato.</body></html>"))
 
 	att := root.addStorage("__attach_version1.0_#00000000")
 	att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("nota.txt"))
 	att.addStream(substgName(pidTagAttachMimeTag, propTypeString), utf16LE("text/plain"))
 	att.addStream(substgName(pidTagAttachData, propTypeBinary), []byte("contenuto della nota"))
-	return buildCFB(root)
+	return buildCFB(outlookMSG(root, nil))
 }
 
 // An attachment can be a whole MIME tree rather than a single file: Outlook
@@ -125,13 +126,13 @@ func fixtureMultipartAttachment() []byte {
 
 	root := &cfbEntry{name: "Root Entry"}
 	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("POSTA CERTIFICATA: Referto"))
-	root.addStream(substgName(pidTagBodyHTML, propTypeString), utf16LE("<html><body>Messaggio certificato.</body></html>"))
+	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte("<html><body>Messaggio certificato.</body></html>"))
 
 	att := root.addStorage("__attach_version1.0_#00000000")
 	att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("envelope.eml"))
 	att.addStream(substgName(pidTagAttachMimeTag, propTypeString), utf16LE("multipart/mixed; boundary=\"esterno\""))
 	att.addStream(substgName(pidTagAttachData, propTypeBinary), []byte(envelope))
-	return buildCFB(root)
+	return buildCFB(outlookMSG(root, nil))
 }
 
 // A body above the 4096-byte cutoff exercises the regular-sector read path.
@@ -139,6 +140,6 @@ func fixtureLargeBody() []byte {
 	body := "<html><body>" + strings.Repeat("riga di testo<br>", 400) + "</body></html>"
 	root := &cfbEntry{name: "Root Entry"}
 	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("Corpo lungo"))
-	root.addStream(substgName(pidTagBodyHTML, propTypeString8), []byte(body))
-	return buildCFB(root)
+	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte(body))
+	return buildCFB(outlookMSG(root, nil))
 }

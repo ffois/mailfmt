@@ -102,7 +102,7 @@ type cfbHeader struct {
 	SectorShift          uint16
 	MiniSectorShift      uint16
 	Reserved1            [6]byte
-	TotalSectors         uint32
+	DirectorySectors     uint32 // [MS-CFB]: must be 0 in a version 3 file
 	FATSectors           uint32
 	FirstDirectorySector uint32
 	TransactionSignature uint32

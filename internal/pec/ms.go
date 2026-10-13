@@ -12,8 +12,8 @@ import (
 // MS_ReadInner reads the message carried inside a PEC envelope's
 // postacert.eml part the way Outlook 2010 shows it: the envelope is imported
 // with eml.MS_Parse, where postacert.eml is an attached message, and that
-// attached message is then imported with the same rules, as opening it from
-// Outlook's attachment list does. It fails when the part is missing.
+// attached message is then read with eml.MS_ParseAttached, as opening it
+// from Outlook's attachment list does. It fails when the part is missing.
 func MS_ReadInner(filePath string) (*email.MSData, error) {
 	raw, err := os.ReadFile(filePath)
 	if err != nil {
@@ -26,7 +26,7 @@ func MS_ReadInner(filePath string) (*email.MSData, error) {
 
 	for _, att := range envelope.MSAttachments {
 		if strings.Contains(strings.ToLower(att.Filename), "postacert.eml") {
-			inner, err := eml.MS_Parse(att.Data)
+			inner, err := eml.MS_ParseAttached(raw, att.Data)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse inner email structure: %w", err)
 			}
