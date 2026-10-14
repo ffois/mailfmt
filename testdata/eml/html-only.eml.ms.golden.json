@@ -1,0 +1,26 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 190,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003e\r\n\u003cp\u003eNome: Mario Rossi\u003c/p\u003e\r\n\u003cp\u003eEmail: mario.rossi@example.it\u003c/p\u003e\r\n\u003cp\u003eTelefono: 000 0000000\u003c/p\u003e\r\n\u003cp\u003eMessaggio",
+    "bodySha256": "4a8db3033a3688ab",
+    "cc": null,
+    "conversationTopic": "Webform submission from: Modulo Contatti",
+    "date": "Mon, 2 Mar 2026 10:14:46 +0000",
+    "droppedAttachments": 0,
+    "from": "\"Modulo Contatti\" \u003cnoreply@example-utility.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Webform submission from: Modulo Contatti",
+    "to": [
+      "\u003cassistenza@example-utility.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "eml"
+}

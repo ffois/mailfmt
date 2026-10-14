@@ -1,0 +1,24 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 6826,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga di testo\u003cbr\u003eriga d",
+    "bodySha256": "1b0a3958b2426d2f",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Corpo lungo",
+    "to": null,
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "msg"
+}

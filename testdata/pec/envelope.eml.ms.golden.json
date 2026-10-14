@@ -1,0 +1,96 @@
+{
+  "attachedMessages": [
+    {
+      "attachment": [
+        0
+      ],
+      "email": {
+        "bcc": null,
+        "bodyFormat": 2,
+        "bodyLen": 67,
+        "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eContenuto reale del messaggio di esempio.\u003c/body\u003e\u003c/html\u003e",
+        "bodySha256": "7e4c30a915569db9",
+        "cc": null,
+        "conversationTopic": "Pratica di esempio n. 00000000000",
+        "date": "",
+        "droppedAttachments": 0,
+        "from": "\u003cmittente@pec-esempio.it\u003e",
+        "hasInnerEmail": false,
+        "importance": 1,
+        "isPec": false,
+        "msAttachments": [
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/pdf",
+            "displayName": "Allegato-fake-1.pdf",
+            "embedded": false,
+            "filename": "Allegato-fake-1.pdf",
+            "hidden": false,
+            "sha256": "2825a244387f8f00",
+            "size": 34
+          },
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/pdf",
+            "displayName": "Allegato-fake-2.pdf",
+            "embedded": false,
+            "filename": "Allegato-fake-2.pdf",
+            "hidden": false,
+            "sha256": "5e8db2dcf35a3281",
+            "size": 34
+          }
+        ],
+        "rtfBodyLen": 0,
+        "subject": "Pratica di esempio n. 00000000000",
+        "to": [
+          "\u003cdestinatario@pec-esempio.it\u003e"
+        ],
+        "unsent": false,
+        "visibleAttachments": [
+          "Allegato-fake-1.pdf",
+          "Allegato-fake-2.pdf"
+        ]
+      }
+    }
+  ],
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 65,
+    "bodyPrefix": "Messaggio di posta certificata: il messaggio e' stato consegnato.",
+    "bodySha256": "e90a9ef54de3647e",
+    "cc": null,
+    "conversationTopic": "POSTA CERTIFICATA: Pratica di esempio n. 00000000000",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\u003cposta-certificata@pec-esempio.it\u003e",
+    "hasInnerEmail": true,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "message/rfc822",
+        "displayName": "postacert.eml (882 byte)",
+        "embedded": true,
+        "filename": "postacert.eml (882 byte).msg",
+        "hidden": false,
+        "sha256": "70893c62af1e8bad",
+        "size": 1176
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "POSTA CERTIFICATA: Pratica di esempio n. 00000000000",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "postacert.eml (882 byte).msg"
+    ]
+  },
+  "format": "eml"
+}

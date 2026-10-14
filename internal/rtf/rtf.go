@@ -202,6 +202,15 @@ func DeEncapsulateHTML(rtf []byte) string { return deEncapsulate(rtf, false) }
 // double-byte code pages work.
 func MS_DeEncapsulateHTML(rtf []byte) string { return deEncapsulate(rtf, true) }
 
+// MS_RTFToText converts an RTF body that is not encapsulated HTML to the text
+// Outlook 2010 shows for it (MailItem.Body): the visible text, with \par and
+// \line as CRLF, \tab, the symbol words, and \'XX bytes in the code page of
+// the current font as MS_DeEncapsulateHTML decodes them; tables, pictures,
+// field instructions and other destinations are left out.
+func MS_RTFToText(rtf []byte) string {
+	return strings.ReplaceAll(deEncapsulate(rtf, true), "\n", "\r\n")
+}
+
 // rtfWriter collects the output. In font-charset mode, bytes are held until
 // something else is written or the code page changes, then decoded together.
 type rtfWriter struct {

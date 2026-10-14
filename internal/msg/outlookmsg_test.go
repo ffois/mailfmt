@@ -22,7 +22,8 @@ const (
 //
 // The message is ANSI when some string in the tree is PT_STRING8, Unicode
 // (STORE_UNICODE_OK) otherwise; a message without PR_MESSAGE_CLASS gets
-// IPM.Note in that kind, one with attachments PR_HASATTACH. Attachments get
+// IPM.Note in that kind, one with attachments PR_HASATTACH, an attached
+// message PR_MESSAGE_FLAGS. Attachments get
 // PR_ATTACH_NUM and PR_ATTACH_METHOD, recipients PR_ROWID and
 // PR_RECIPIENT_TYPE To. Values in fixed take precedence. A message header's
 // next IDs follow the highest numbers used.
@@ -51,6 +52,10 @@ func finishMessage(e *cfbEntry, headerSize int, fixed msgFixed, unicode bool) {
 	}
 	if unicode {
 		setDefault(fixed, e, msTagStoreSupportMask, msStoreUnicodeOK)
+	}
+	if headerSize == msEmbeddedHeaderSize {
+		// Outlook cannot open an attached message without it.
+		setDefault(fixed, e, msTagMessageFlags, 0x1) // MSGFLAG_READ
 	}
 	var nextRecip, nextAttach uint32
 	for _, c := range e.children {
@@ -81,7 +86,8 @@ func finishMessage(e *cfbEntry, headerSize int, fixed msgFixed, unicode bool) {
 // propertyStream lists the properties of e: the header, then a 16-byte entry
 // per property, in tag order. A variable-length entry holds the size
 // [MS-OXMSG] gives it: the stream length, plus the terminator of a string;
-// an object entry holds 0xFFFFFFFF.
+// an object entry holds 0xFFFFFFFF with 1 in its high dword, as Outlook
+// writes it: with 0 there Outlook cannot open an attached message.
 func propertyStream(e *cfbEntry, headerSize int, nextRecip, nextAttach uint32, values map[uint32]uint64) []byte {
 	entries := make(map[uint32]uint64, len(values))
 	for tag, v := range values {
@@ -98,7 +104,7 @@ func propertyStream(e *cfbEntry, headerSize int, nextRecip, nextAttach uint32, v
 		tag := uint32(tag64)
 		switch size := uint64(len(c.data)); tag & 0xFFFF {
 		case 0x000D:
-			entries[tag] = 0xFFFFFFFF
+			entries[tag] = 0x1_FFFFFFFF
 		case propTypeString:
 			entries[tag] = size + 2
 		case propTypeString8:

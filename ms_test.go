@@ -106,6 +106,42 @@ func TestMSReadPecInnerEml(t *testing.T) {
 	}
 }
 
+// MS_ReadAttachedMessage opens an attached message of a .msg (a storage of
+// the file) or of a .eml (a MIME part), and refuses what is not one.
+func TestMSReadAttachedMessage(t *testing.T) {
+	msgPath := filepath.Join("testdata", "msg", "attached-message.msg")
+	inner, err := mailfmt.MS_ReadAttachedMessage(msgPath, 0)
+	if err != nil {
+		t.Fatalf("MS_ReadAttachedMessage(.msg): %v", err)
+	}
+	if inner.Subject != "Preventivo n. 4471" || len(inner.Attachments) != 1 || inner.Attachments[0].Filename != "preventivo.pdf" {
+		t.Errorf("unexpected attached message: %q %+v", inner.Subject, inner.Attachments)
+	}
+
+	pecPath := filepath.Join("testdata", "pec", "envelope.eml")
+	viaIndex, err := mailfmt.MS_ReadAttachedMessage(pecPath, 0)
+	if err != nil {
+		t.Fatalf("MS_ReadAttachedMessage(.eml): %v", err)
+	}
+	pecInner, err := mailfmt.MS_ReadPecInnerEml(pecPath)
+	if err != nil {
+		t.Fatalf("MS_ReadPecInnerEml: %v", err)
+	}
+	if viaIndex.Subject != pecInner.Subject || len(viaIndex.MSAttachments) != len(pecInner.MSAttachments) {
+		t.Errorf("expected the PEC inner message, got %q", viaIndex.Subject)
+	}
+
+	for name, indexes := range map[string][]int{
+		"out of range":            {9},
+		"not an attached message": {1},
+		"too deep":                {0, 0},
+	} {
+		if _, err := mailfmt.MS_ReadAttachedMessage(pecPath, indexes...); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
 // An attached message opened from the attachment list is the one
 // MS_ReadPecInnerEml reads for a PEC; any other attachment is refused.
 func TestMSReadEmlAttachedMessage(t *testing.T) {

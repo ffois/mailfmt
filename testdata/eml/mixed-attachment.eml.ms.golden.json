@@ -1,0 +1,52 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 65,
+    "bodyPrefix": "\u003cdiv dir=\"ltr\"\u003eIn allegato trovi i documenti scansionati.\u003c/div\u003e\r\n",
+    "bodySha256": "98180de5609cc516",
+    "cc": null,
+    "conversationTopic": "Scansione-Esempio 01-01-2026 09.00 e altri 1 documenti.pdf",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Scansioni\" \u003cscansioni@example.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "application/pdf",
+        "displayName": "Scansione-Esempio 01-01-2026 09.00.pdf",
+        "embedded": false,
+        "filename": "Scansione-Esempio 01-01-2026 09.00.pdf",
+        "hidden": false,
+        "sha256": "e720b6876882e53d",
+        "size": 31
+      },
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "application/pdf",
+        "displayName": "Scansione-Esempio 01-01-2026 09.01.pdf",
+        "embedded": false,
+        "filename": "Scansione-Esempio 01-01-2026 09.01.pdf",
+        "hidden": false,
+        "sha256": "15f8a0eefc7eb3b6",
+        "size": 31
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "Scansione-Esempio 01-01-2026 09.00 e altri 1 documenti.pdf",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "Scansione-Esempio 01-01-2026 09.00.pdf",
+      "Scansione-Esempio 01-01-2026 09.01.pdf"
+    ]
+  },
+  "format": "eml"
+}

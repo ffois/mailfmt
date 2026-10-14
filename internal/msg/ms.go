@@ -49,7 +49,7 @@ const (
 	msTagAttachFlags      = 0x37140003
 	msTagAttachmentHidden = 0x7FFE000B
 	msTagAttachDataObject = 0x3701000D
-	msAttInvisibleInHTML  = 0x1
+	msAttMHTMLRef         = 0x4 // ATT_MHTML_REF
 	msAttachOLE           = 6
 
 	msTagRecipientType = 0x0C150003
@@ -62,6 +62,7 @@ const (
 	msPidTagSMTPAddress           = 0x39FE
 
 	msClassMultipartSigned = "IPM.Note.SMIME.MultipartSigned"
+	msClassSMIME           = "IPM.Note.SMIME"
 )
 
 // The errors below are the ways Outlook 2010 refuses a .msg; each names the
@@ -111,7 +112,9 @@ func MS_ReadFile(path string) (*email.MSData, error) {
 // .msg (OUTLOOK.EXE /f: StgOpenStorage, then OLMAPI32 OpenIMsgOnIStg).
 //
 // A message is Unicode when its PR_STORE_SUPPORT_MASK has STORE_UNICODE_OK,
-// ANSI otherwise, and its string properties must all be of that kind.
+// ANSI otherwise, and its string properties must all be of that kind. ANSI
+// strings are read in the ANSI code page of Windows (msANSICodePage), PR_BODY
+// in PR_INTERNET_CPID when the message has it.
 //
 // The file is refused, as Outlook refuses it, when the compound file is
 // version 3 with a non-zero directory sector count in its header, when the
@@ -132,19 +135,53 @@ func MS_ReadFile(path string) (*email.MSData, error) {
 //
 //   - To, Cc and Bcc come from the recipient table, each `"Name" <address>`
 //     with PR_SMTP_ADDRESS, else PR_EMAIL_ADDRESS; From is formatted the same;
-//   - Body is PR_HTML (PT_BINARY only, decoded in PR_INTERNET_CPID), else the
-//     HTML encapsulated in PR_RTF_COMPRESSED decoded with each font's
-//     charset, with cid: references resolved, else the PR_BODY text;
+//   - Body is PR_HTML (PT_BINARY only, decoded in PR_INTERNET_CPID); else,
+//     when PR_BODY is listed, PR_RTF_COMPRESSED: the HTML encapsulated in it,
+//     decoded with each font's charset, or the text of any other RTF
+//     (BodyFormat MSBodyRTF); else the PR_BODY text. cid: references are
+//     resolved, and RTFBody is the decompressed RTF;
+//   - an attachment is hidden when PR_ATTACHMENT_HIDDEN is set, when its
+//     PR_ATTACH_FLAGS carry ATT_MHTML_REF, or when an HTML body refers to it
+//     (email.MSHideReferenced);
 //   - an attached message is Embedded, named PR_DISPLAY_NAME, with the file
-//     name Outlook derives from that (".msg" when it has no name);
+//     name Outlook derives from that (".msg" when it has no name); MS_Open
+//     and AttachedMessage open it;
 //   - an IPM.Note.SMIME.MultipartSigned message takes body and attachments
-//     from the multipart/signed entity its attachment carries, read as
-//     eml.MS_Parse reads a .eml;
+//     from the multipart/signed entity its attachment carries, an
+//     IPM.Note.SMIME one from the entity its smime.p7m's SignedData
+//     encapsulates, read as eml.MS_Parse reads a .eml; an encrypted one is
+//     refused;
 //   - Importance, Unsent (MSGFLAG_UNSENT) and Date, from PR_CLIENT_SUBMIT_TIME
 //     or else PR_MESSAGE_DELIVERY_TIME, come from the fixed properties;
 //     Subject is PR_SUBJECT alone and ConversationTopic the stored
 //     PR_CONVERSATION_TOPIC.
 func MS_Read(r io.ReaderAt) (*email.MSData, error) {
+	m, err := MS_Open(r)
+	if err != nil {
+		return nil, err
+	}
+	return m.Data, nil
+}
+
+// MSMessage is a message read from a .msg the way Outlook opens it, with
+// what it takes to open the messages attached to it.
+type MSMessage struct {
+	Data *email.MSData
+
+	// Entity is the MIME entity an S/MIME message shows: the whole
+	// multipart/signed entity of an IPM.Note.SMIME.MultipartSigned message,
+	// the content of an IPM.Note.SMIME one's SignedData; nil for any other.
+	// Its attached messages are MIME: eml.MS_ParseAttached reads them
+	// against it.
+	Entity []byte
+
+	cfb      *cfbReader
+	attached []*msObject // the attachment object of each MSAttachments entry
+}
+
+// MS_Open reads a .msg as MS_Read does and keeps it open for
+// AttachedMessage.
+func MS_Open(r io.ReaderAt) (*MSMessage, error) {
 	cfb, err := newCFBReader(r)
 	if err != nil {
 		return nil, err
@@ -156,47 +193,118 @@ func MS_Read(r io.ReaderAt) (*email.MSData, error) {
 		return nil, errors.New("no root directory")
 	}
 
-	m, err := msLoadMessage(cfb, cfb.root, msTopLevelHeaderSize)
+	m, err := msLoadMessage(cfb, cfb.root, msTopLevelHeaderSize, false)
 	if err != nil {
 		return nil, err
 	}
 	if msChild(cfb.root, msNameIDStorage, 1) == nil {
 		return nil, errMSNoNameID
 	}
-	_, unicodeClass := m.props[pidTagMessageClass<<16|propTypeString]
-	_, ansiClass := m.props[pidTagMessageClass<<16|propTypeString8]
-	if !unicodeClass && !ansiClass {
+	if !m.hasClass() {
 		return nil, errMSNoMessageClass
 	}
 	if m.mixed(m.unicodeMode()) {
 		return nil, errMSStringType
 	}
+	return msBuild(cfb, m, m.hasAttachments())
+}
 
+// errMSNotStored is returned by AttachedMessage for an attachment that is
+// not a message stored in the .msg.
+var errMSNotStored = errors.New("msg: the attachment is not an attached message stored in the file")
+
+// errMSAttachedMessage is how Outlook fails to open an attached message:
+// "Impossibile salvare l'allegato" when saving it, measured on the rules
+// AttachedMessage applies.
+var errMSAttachedMessage = errors.New("msg: Outlook cannot open the attached message")
+
+// AttachedMessage opens MSAttachments[i], an attached message stored in the
+// .msg, the way Outlook opens it from the attachment list. Measured on
+// Outlook 2010, it cannot be opened when:
+//
+//   - the attachment's PR_ATTACH_DATA_OBJ entry does not hold 1 in its high
+//     dword, as Outlook writes it;
+//   - the message has no property stream, no PR_MESSAGE_FLAGS (0 will do) or
+//     no PR_MESSAGE_CLASS;
+//   - a string of the message, of an attachment or of a recipient is not of
+//     the kind its own PR_STORE_SUPPORT_MASK sets: unlike a top-level
+//     message, a recipient of the wrong kind fails the whole message.
+//
+// Attachments and recipients follow the next IDs of its 24-byte header, its
+// attachments are shown without PR_HASATTACH, and without a stored
+// PR_CONVERSATION_TOPIC the topic is derived from the subject. (Outlook was
+// measured saving the attached message, which may itself set those two.) An
+// S/MIME message carries MIME attached messages instead: see Entity.
+func (m *MSMessage) AttachedMessage(i int) (*MSMessage, error) {
+	if m.Entity != nil || i < 0 || i >= len(m.attached) {
+		return nil, errMSNotStored
+	}
+	o := m.attached[i]
+	node := o.objects[msTagAttachDataObject]
+	if node == nil || o.fixed[msTagAttachMethod] == msAttachOLE {
+		return nil, errMSNotStored
+	}
+	if o.objectEntries[msTagAttachDataObject]>>32 != 1 {
+		return nil, fmt.Errorf("%w: its PR_ATTACH_DATA_OBJ entry is not marked as Outlook marks it", errMSAttachedMessage)
+	}
+	inner, err := msLoadMessage(m.cfb, node, msEmbeddedHeaderSize, true)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errMSAttachedMessage, err)
+	}
+	if _, ok := inner.fixed[msTagMessageFlags]; !ok {
+		return nil, fmt.Errorf("%w: it has no PR_MESSAGE_FLAGS", errMSAttachedMessage)
+	}
+	if !inner.hasClass() {
+		return nil, fmt.Errorf("%w: %v", errMSAttachedMessage, errMSNoMessageClass)
+	}
+	if inner.mixed(inner.unicodeMode()) {
+		return nil, fmt.Errorf("%w: %v", errMSAttachedMessage, errMSStringType)
+	}
+	opened, err := msBuild(m.cfb, inner, true)
+	if err != nil {
+		return nil, err
+	}
+	_, unicodeTopic := inner.props[pidTagConversationTopic<<16|propTypeString]
+	_, ansiTopic := inner.props[pidTagConversationTopic<<16|propTypeString8]
+	if !unicodeTopic && !ansiTopic {
+		opened.Data.ConversationTopic = email.MSConversationTopic(opened.Data.Subject)
+	}
+	return opened, nil
+}
+
+// msBuild turns a loaded message into the MSData Outlook shows; shown says
+// whether its attachments are listed.
+func msBuild(cfb *cfbReader, m *msMessage, shown bool) (*MSMessage, error) {
 	p := m.props
 	result := &email.MSData{
 		Importance:        email.MSImportanceNormal,
-		ConversationTopic: getPropString(p, pidTagConversationTopic),
+		ConversationTopic: msString(p, pidTagConversationTopic),
 	}
-	result.Subject = getPropString(p, pidTagSubject)
+	result.Subject = msString(p, pidTagSubject)
 	result.From = msSender(p)
 	result.To, result.Cc, result.Bcc = msRecipients(m.recipients)
 
-	signed := strings.EqualFold(getPropString(p, pidTagMessageClass), msClassMultipartSigned)
-	inner, err := msMultipartSigned(m, signed)
+	opened := &MSMessage{Data: result, cfb: cfb}
+	class := msString(p, pidTagMessageClass)
+	signed := strings.EqualFold(class, msClassMultipartSigned) || strings.EqualFold(class, msClassSMIME)
+	inner, entity, err := msSMIME(m, class)
 	if err != nil {
 		return nil, err
 	}
 	var atts []email.MSAttachment
 	if inner != nil {
-		result.Body, result.RTFBody = inner.Body, inner.RTFBody
+		result.Body, result.BodyFormat, result.RTFBody = inner.Body, inner.BodyFormat, inner.RTFBody
 		atts = inner.MSAttachments
+		opened.Entity = entity
 	} else {
-		var isHTML bool
-		result.Body, isHTML = msBody(p, m.fixed)
-		if m.hasAttachments() {
-			atts = msAttachments(m.attachments, isHTML)
+		result.Body, result.BodyFormat, result.RTFBody = msBody(p, m.fixed)
+		isHTML := result.BodyFormat == email.MSBodyHTML
+		if shown {
+			atts = msAttachments(m.attachments)
+			opened.attached = m.attachments
 		}
 		if isHTML {
+			email.MSHideReferenced(result.Body, atts)
 			result.Body = email.MSResolveCIDs(result.Body, atts)
 		}
 	}
@@ -216,7 +324,7 @@ func MS_Read(r io.ReaderAt) (*email.MSData, error) {
 			break
 		}
 	}
-	return result, nil
+	return opened, nil
 }
 
 // msObject is a message, attachment or recipient storage as OLMAPI32 loads
@@ -226,6 +334,10 @@ type msObject struct {
 	fixed   map[uint32]uint64   // fixed-length values, held in the entry
 	props   map[uint32][]byte   // variable-length values, from __substg1.0_ streams
 	objects map[uint32]*dirNode // PT_OBJECT values: storages, nil when missing
+
+	// objectEntries holds the 8-byte value of each PT_OBJECT entry: the size
+	// 0xFFFFFFFF, and in the high dword the 1 Outlook writes there.
+	objectEntries map[uint32]uint64
 
 	ansi, unicode bool // whether PT_STRING8 / PT_UNICODE properties are listed
 
@@ -258,9 +370,10 @@ func msLoadObject(cfb *cfbReader, node *dirNode, headerSize int) (*msObject, err
 	}
 
 	o := &msObject{
-		fixed:   make(map[uint32]uint64),
-		props:   make(map[uint32][]byte),
-		objects: make(map[uint32]*dirNode),
+		fixed:         make(map[uint32]uint64),
+		props:         make(map[uint32][]byte),
+		objects:       make(map[uint32]*dirNode),
+		objectEntries: make(map[uint32]uint64),
 	}
 	if headerSize >= msEmbeddedHeaderSize {
 		o.nextRecip = binary.LittleEndian.Uint32(data[8:])
@@ -280,6 +393,7 @@ func msLoadObject(cfb *cfbReader, node *dirNode, headerSize int) (*msObject, err
 			o.fixed[tag] = binary.LittleEndian.Uint64(data[off+8:])
 		case typ == 0x000D: // PT_OBJECT
 			o.objects[tag] = msChild(node, name, 1)
+			o.objectEntries[tag] = binary.LittleEndian.Uint64(data[off+8:])
 		case typ&0x1000 != 0:
 			// Multi-valued: no property read here is one.
 		default:
@@ -313,8 +427,9 @@ type msMessage struct {
 // msLoadMessage loads the message stored in node, then the attachments and
 // recipients numbered below the next IDs in its header. An attachment
 // without a property stream, or with a string of the wrong kind, fails the
-// whole message; such a recipient leaves the message with no recipients.
-func msLoadMessage(cfb *cfbReader, node *dirNode, headerSize int) (*msMessage, error) {
+// whole message; such a recipient leaves the message with no recipients, or
+// fails it too when strictRecipients is set, as for an attached message.
+func msLoadMessage(cfb *cfbReader, node *dirNode, headerSize int, strictRecipients bool) (*msMessage, error) {
 	obj, err := msLoadObject(cfb, node, headerSize)
 	if err != nil {
 		return nil, err
@@ -336,13 +451,26 @@ func msLoadMessage(cfb *cfbReader, node *dirNode, headerSize int) (*msMessage, e
 	}
 	for _, n := range msNumbered(node, msRecipPrefix, obj.nextRecip) {
 		r, err := msLoadObject(cfb, n, msSubObjectHeaderSize)
-		if err != nil || r.mixed(unicode) {
+		if err == nil && r.mixed(unicode) {
+			err = errMSStringType
+		}
+		if err != nil && strictRecipients {
+			return nil, err
+		}
+		if err != nil {
 			m.recipients = nil
 			break
 		}
 		m.recipients = append(m.recipients, r)
 	}
 	return m, nil
+}
+
+// hasClass reports whether PR_MESSAGE_CLASS is listed, in either kind.
+func (m *msMessage) hasClass() bool {
+	_, unicodeClass := m.props[pidTagMessageClass<<16|propTypeString]
+	_, ansiClass := m.props[pidTagMessageClass<<16|propTypeString8]
+	return unicodeClass || ansiClass
 }
 
 // unicodeMode reports whether the message is a Unicode one.
@@ -394,13 +522,13 @@ func msNumbered(node *dirNode, prefix string, next uint32) []*dirNode {
 
 // msSender is the sender, else the represented sender, as an address.
 func msSender(p map[uint32][]byte) string {
-	name := getPropString(p, pidTagSenderName)
+	name := msString(p, pidTagSenderName)
 	if name == "" {
-		name = getPropString(p, pidTagSentRepresentingName)
+		name = msString(p, pidTagSentRepresentingName)
 	}
-	addr := getPropString(p, pidTagSenderEmailAddress)
+	addr := msString(p, pidTagSenderEmailAddress)
 	if addr == "" {
-		addr = getPropString(p, pidTagSentRepresentingAddr)
+		addr = msString(p, pidTagSentRepresentingAddr)
 	}
 	return email.MSFormatAddress(name, addr)
 }
@@ -409,11 +537,11 @@ func msSender(p map[uint32][]byte) string {
 // than Cc or Bcc counts as To.
 func msRecipients(recips []*msObject) (to, cc, bcc []string) {
 	for _, r := range recips {
-		addr := getPropString(r.props, msPidTagSMTPAddress)
+		addr := msString(r.props, msPidTagSMTPAddress)
 		if addr == "" {
-			addr = getPropString(r.props, msPidTagEmailAddress)
+			addr = msString(r.props, msPidTagEmailAddress)
 		}
-		entry := email.MSFormatAddress(getPropString(r.props, msPidTagDisplayName), addr)
+		entry := email.MSFormatAddress(msString(r.props, msPidTagDisplayName), addr)
 		if entry == "" {
 			continue
 		}
@@ -430,67 +558,94 @@ func msRecipients(recips []*msObject) (to, cc, bcc []string) {
 	return to, cc, bcc
 }
 
-// msBody returns the body Outlook shows and whether it is HTML; a plain text
-// body is returned as text, as eml.MS_Parse returns it. PR_HTML is read as
-// PT_BINARY only: Outlook ignores a PR_HTML stored as a string.
-func msBody(p map[uint32][]byte, fixed map[uint32]uint64) (string, bool) {
+// msBody returns the body Outlook shows, its format and the decompressed RTF.
+// Measured on Outlook 2010:
+//
+//   - PR_HTML, read as PT_BINARY only (a string PR_HTML is ignored), wins
+//     over everything, whatever PR_NATIVE_BODY_INFO says;
+//   - else PR_RTF_COMPRESSED, but only when PR_BODY is listed, even empty:
+//     HTML encapsulated in it is an HTML body, any other RTF an RTF body whose
+//     text is derived from the RTF, not taken from PR_BODY;
+//   - else PR_BODY, as text. An RTF without PR_BODY is ignored.
+func msBody(p map[uint32][]byte, fixed map[uint32]uint64) (string, email.MSBodyFormat, string) {
+	var rtfBody []byte
+	if data, ok := p[pidTagRtfCompressed<<16|propTypeBinary]; ok {
+		if out, err := rtf.Decompress(data); err == nil {
+			rtfBody = out
+		}
+	}
 	if b := p[pidTagBodyHTML<<16|propTypeBinary]; len(b) > 0 {
 		if cp, ok := fixed[msTagInternetCPID]; ok {
-			return rtf.DecodeCodePage(b, int(int32(cp))), true
+			return rtf.DecodeCodePage(b, int(int32(cp))), email.MSBodyHTML, string(rtfBody)
 		}
-		return email.ConvertToUTF8(string(b)), true
+		return email.ConvertToUTF8(string(b)), email.MSBodyHTML, string(rtfBody)
 	}
-	if data, ok := p[pidTagRtfCompressed<<16|propTypeBinary]; ok {
-		if out, err := rtf.Decompress(data); err == nil && rtf.IsEncapsulatedHTML(out) {
-			return rtf.MS_DeEncapsulateHTML(out), true
+	_, unicodeBody := p[pidTagBody<<16|propTypeString]
+	_, ansiBody := p[pidTagBody<<16|propTypeString8]
+	if rtfBody != nil && (unicodeBody || ansiBody) {
+		if rtf.IsEncapsulatedHTML(rtfBody) {
+			return rtf.MS_DeEncapsulateHTML(rtfBody), email.MSBodyHTML, string(rtfBody)
 		}
+		return rtf.MS_RTFToText(rtfBody), email.MSBodyRTF, string(rtfBody)
 	}
-	return getPropString(p, pidTagBody), false
+	return msBodyText(p, fixed), email.MSBodyPlain, string(rtfBody)
 }
 
-// msMultipartSigned reads the entity a clear-signed S/MIME message keeps in
-// its attachment: the whole multipart/signed MIME message, headers included,
-// which Outlook opens in place of the message's own body and attachments.
-// It returns nil for a message that is not signed, or has no such data.
-func msMultipartSigned(m *msMessage, signed bool) (*email.MSData, error) {
-	if !signed || len(m.attachments) == 0 {
-		return nil, nil
+// msSMIME reads the entity an S/MIME message keeps in its attachment, which
+// Outlook opens in place of the message's own body and attachments: for
+// IPM.Note.SMIME.MultipartSigned the whole multipart/signed MIME message,
+// headers included; for IPM.Note.SMIME the MIME entity the smime.p7m's
+// SignedData encapsulates (an encrypted one cannot be opened). It returns
+// what Outlook shows and the entity, or nil for any other message or one
+// with no such data.
+func msSMIME(m *msMessage, class string) (*email.MSData, []byte, error) {
+	multipartSigned := strings.EqualFold(class, msClassMultipartSigned)
+	if !multipartSigned && !strings.EqualFold(class, msClassSMIME) || len(m.attachments) == 0 {
+		return nil, nil, nil
 	}
-	data := m.attachments[0].props[pidTagAttachData<<16|propTypeBinary]
-	if len(data) == 0 {
-		return nil, nil
+	entity := m.attachments[0].props[pidTagAttachData<<16|propTypeBinary]
+	if len(entity) == 0 {
+		return nil, nil, nil
 	}
-	inner, err := eml.MS_Parse(data)
+	if !multipartSigned {
+		var err error
+		if entity, err = eml.MS_SMIMEContent(entity); err != nil {
+			return nil, nil, fmt.Errorf("msg: S/MIME content: %w", err)
+		}
+	}
+	inner, err := eml.MS_Parse(entity)
 	if err != nil {
-		return nil, fmt.Errorf("msg: S/MIME content: %w", err)
+		return nil, nil, fmt.Errorf("msg: S/MIME content: %w", err)
 	}
-	return inner, nil
+	return inner, entity, nil
 }
 
 // msAttachments builds the attachments Outlook holds, in number order.
 //
-// An attachment is hidden when PR_ATTACHMENT_HIDDEN is set, or when its
-// PR_ATTACH_FLAGS carry ATT_INVISIBLE_IN_HTML and the body is HTML: the flag
-// OUTLMIME.DLL sets on parts an HTML body refers to. One whose
-// PR_ATTACH_DATA_OBJ is a storage, and not an OLE object, is an attached
-// message: Embedded, with no Data, named PR_DISPLAY_NAME alone (its subject
-// is not used), and with the file name Outlook derives from that name unless
-// it stores one. Any other attachment without a display name shows its file
-// name.
-func msAttachments(atts []*msObject, isHTML bool) []email.MSAttachment {
+// An attachment is hidden, whatever the body's format, when
+// PR_ATTACHMENT_HIDDEN is set or its PR_ATTACH_FLAGS carry ATT_MHTML_REF (the
+// flags OUTLMIME.DLL sets on parts an HTML body refers to are
+// ATT_MHTML_REF | ATT_INVISIBLE_IN_HTML; the latter alone hides nothing, as
+// measured); an HTML body hides those it refers to too (MSHideReferenced).
+// One whose PR_ATTACH_DATA_OBJ is a storage, and not an OLE object, is an
+// attached message: Embedded, with no Data, named PR_DISPLAY_NAME alone (its
+// subject is not used), and with the file name Outlook derives from that
+// name unless it stores one. Any other attachment without a display name
+// shows its file name.
+func msAttachments(atts []*msObject) []email.MSAttachment {
 	out := make([]email.MSAttachment, 0, len(atts))
 	for _, o := range atts {
 		p := o.props
 		a := email.MSAttachment{
-			DisplayName:     getPropString(p, msPidTagDisplayName),
-			ContentID:       strings.Trim(getPropString(p, pidTagAttachContentId), "<>"),
-			ContentLocation: getPropString(p, msPidTagAttachContentLocation),
+			DisplayName:     msString(p, msPidTagDisplayName),
+			ContentID:       strings.Trim(msString(p, pidTagAttachContentId), "<>"),
+			ContentLocation: msString(p, msPidTagAttachContentLocation),
 		}
-		a.Filename = getPropString(p, pidTagAttachLongFilename)
+		a.Filename = msString(p, pidTagAttachLongFilename)
 		if a.Filename == "" {
-			a.Filename = getPropString(p, pidTagAttachFilename)
+			a.Filename = msString(p, pidTagAttachFilename)
 		}
-		a.ContentType = getPropString(p, pidTagAttachMimeTag)
+		a.ContentType = msString(p, pidTagAttachMimeTag)
 		a.Data = p[pidTagAttachData<<16|propTypeBinary]
 
 		if o.objects[msTagAttachDataObject] != nil && o.fixed[msTagAttachMethod] != msAttachOLE {
@@ -506,11 +661,38 @@ func msAttachments(atts []*msObject, isHTML bool) []email.MSAttachment {
 				a.Filename = a.DisplayName
 			}
 		}
-		hidden := byte(o.fixed[msTagAttachmentHidden]) != 0
-		a.Hidden = hidden || (isHTML && uint32(o.fixed[msTagAttachFlags])&msAttInvisibleInHTML != 0)
+		a.Hidden = byte(o.fixed[msTagAttachmentHidden]) != 0 || uint32(o.fixed[msTagAttachFlags])&msAttMHTMLRef != 0
 		out = append(out, a)
 	}
 	return out
+}
+
+// msANSICodePage is the code page Outlook reads PT_STRING8 properties in:
+// the ANSI code page of the Windows it runs on, measured on an Italian one.
+// PR_MESSAGE_CODEPAGE plays no part, and UTF-8 bytes are not recognised.
+const msANSICodePage = 1252
+
+// msString reads a string property as Outlook reads it from a .msg:
+// PT_UNICODE as is, PT_STRING8 in msANSICodePage.
+func msString(p map[uint32][]byte, id uint32) string {
+	if data, ok := p[id<<16|propTypeString]; ok {
+		return decodeUTF16(data)
+	}
+	if data, ok := p[id<<16|propTypeString8]; ok {
+		return rtf.DecodeCodePage([]byte(strings.TrimRight(string(data), "\x00")), msANSICodePage)
+	}
+	return ""
+}
+
+// msBodyText reads PR_BODY: a PT_STRING8 one is in PR_INTERNET_CPID when the
+// message has it, unlike every other string (measured).
+func msBodyText(p map[uint32][]byte, fixed map[uint32]uint64) string {
+	if data, ok := p[pidTagBody<<16|propTypeString8]; ok {
+		if cp, ok := fixed[msTagInternetCPID]; ok {
+			return rtf.DecodeCodePage([]byte(strings.TrimRight(string(data), "\x00")), int(int32(cp)))
+		}
+	}
+	return msString(p, pidTagBody)
 }
 
 // msFiletime converts a Windows FILETIME (100 ns ticks since 1601) to UTC.

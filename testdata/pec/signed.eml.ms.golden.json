@@ -1,0 +1,4 @@
+{
+  "error": "eml: S/MIME signature is not a PKCS #7 SignedData (Outlook cannot open the message)",
+  "format": "eml"
+}

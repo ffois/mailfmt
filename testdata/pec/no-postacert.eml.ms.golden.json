@@ -1,0 +1,40 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 130,
+    "bodyPrefix": "Messaggio di posta certificata senza l'allegato postacert.eml: la\r\nriga precedente serve a verificare il fallback su EML",
+    "bodySha256": "698199dd6fe3c646",
+    "cc": null,
+    "conversationTopic": "POSTA CERTIFICATA: consegna (fixture senza postacert.eml)",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\u003cposta-certificata@pec-esempio.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "application/xml",
+        "displayName": "daticert.xml",
+        "embedded": false,
+        "filename": "daticert.xml",
+        "hidden": false,
+        "sha256": "51efd9edc4682261",
+        "size": 710
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "POSTA CERTIFICATA: consegna (fixture senza postacert.eml)",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "daticert.xml"
+    ]
+  },
+  "format": "eml"
+}

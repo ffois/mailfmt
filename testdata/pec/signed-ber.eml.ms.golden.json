@@ -1,0 +1,120 @@
+{
+  "attachedMessages": [
+    {
+      "attachment": [
+        0
+      ],
+      "email": {
+        "bcc": null,
+        "bodyFormat": 2,
+        "bodyLen": 78,
+        "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eConfermiamo l'annullamento della pratica di esempio.\u003c/body\u003e\u003c/html\u003e",
+        "bodySha256": "ae48972f5c9dd9cb",
+        "cc": null,
+        "conversationTopic": "Conferma annullamento pratica di esempio",
+        "date": "",
+        "droppedAttachments": 0,
+        "from": "\u003cmittente@pec-esempio.it\u003e",
+        "hasInnerEmail": false,
+        "importance": 1,
+        "isPec": true,
+        "msAttachments": [
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/pdf",
+            "displayName": "Ricevuta-fake.pdf",
+            "embedded": false,
+            "filename": "Ricevuta-fake.pdf",
+            "hidden": false,
+            "sha256": "a059193275ed2ee2",
+            "size": 27
+          },
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/xml",
+            "displayName": "daticert.xml",
+            "embedded": false,
+            "filename": "daticert.xml",
+            "hidden": false,
+            "sha256": "51efd9edc4682261",
+            "size": 710
+          },
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/pkcs7-signature",
+            "displayName": "smime.p7s",
+            "embedded": false,
+            "filename": "smime.p7s",
+            "hidden": false,
+            "sha256": "56c693aac6fcaa44",
+            "size": 45
+          }
+        ],
+        "rtfBodyLen": 0,
+        "subject": "Conferma annullamento pratica di esempio",
+        "to": [
+          "\u003cdestinatario@pec-esempio.it\u003e"
+        ],
+        "unsent": false,
+        "visibleAttachments": [
+          "Ricevuta-fake.pdf",
+          "daticert.xml",
+          "smime.p7s"
+        ]
+      }
+    }
+  ],
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 56,
+    "bodyPrefix": "Messaggio di posta certificata: annullamento spedizione.",
+    "bodySha256": "7829b9bcff6256eb",
+    "cc": null,
+    "conversationTopic": "POSTA CERTIFICATA: annullamento spedizione di esempio",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\u003cposta-certificata@pec-esempio.it\u003e",
+    "hasInnerEmail": true,
+    "importance": 1,
+    "isPec": true,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "message/rfc822",
+        "displayName": "postacert.eml (1,59 KB)",
+        "embedded": true,
+        "filename": "postacert.eml (159 KB).msg",
+        "hidden": false,
+        "sha256": "a41f4977529dfeaf",
+        "size": 2185
+      },
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "application/xml",
+        "displayName": "daticert.xml",
+        "embedded": false,
+        "filename": "daticert.xml",
+        "hidden": false,
+        "sha256": "51efd9edc4682261",
+        "size": 710
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "POSTA CERTIFICATA: annullamento spedizione di esempio",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "postacert.eml (159 KB).msg",
+      "daticert.xml"
+    ]
+  },
+  "format": "eml"
+}

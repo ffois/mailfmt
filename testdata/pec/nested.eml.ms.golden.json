@@ -1,0 +1,115 @@
+{
+  "attachedMessages": [
+    {
+      "attachedMessages": [
+        {
+          "attachment": [
+            0,
+            0
+          ],
+          "email": {
+            "bcc": null,
+            "bodyFormat": 1,
+            "bodyLen": 46,
+            "bodyPrefix": "Testo della comunicazione originale inoltrata.",
+            "bodySha256": "1b5b63ea1659b6e7",
+            "cc": null,
+            "conversationTopic": "Comunicazione originale",
+            "date": "",
+            "droppedAttachments": 0,
+            "from": "\u003ccollega@example.it\u003e",
+            "hasInnerEmail": false,
+            "importance": 1,
+            "isPec": false,
+            "msAttachments": [],
+            "rtfBodyLen": 0,
+            "subject": "Comunicazione originale",
+            "to": [
+              "\u003cmittente@pec-esempio.it\u003e"
+            ],
+            "unsent": false,
+            "visibleAttachments": null
+          }
+        }
+      ],
+      "attachment": [
+        0
+      ],
+      "email": {
+        "bcc": null,
+        "bodyFormat": 1,
+        "bodyLen": 50,
+        "bodyPrefix": "Vedi il messaggio originale inoltrato in allegato.",
+        "bodySha256": "b033db730bc2d557",
+        "cc": null,
+        "conversationTopic": "Inoltro comunicazione di esempio",
+        "date": "",
+        "droppedAttachments": 0,
+        "from": "\u003cmittente@pec-esempio.it\u003e",
+        "hasInnerEmail": true,
+        "importance": 1,
+        "isPec": false,
+        "msAttachments": [
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "message/rfc822",
+            "displayName": "messaggio-originale.eml (147 byte)",
+            "embedded": true,
+            "filename": "messaggio-originale.eml (147 byte).msg",
+            "hidden": false,
+            "sha256": "233a3ad211ecff5b",
+            "size": 197
+          }
+        ],
+        "rtfBodyLen": 0,
+        "subject": "Inoltro comunicazione di esempio",
+        "to": [
+          "\u003cdestinatario@pec-esempio.it\u003e"
+        ],
+        "unsent": false,
+        "visibleAttachments": [
+          "messaggio-originale.eml (147 byte).msg"
+        ]
+      }
+    }
+  ],
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 55,
+    "bodyPrefix": "Messaggio di posta certificata con allegato di inoltro.",
+    "bodySha256": "475aef5c1d5cd208",
+    "cc": null,
+    "conversationTopic": "POSTA CERTIFICATA: Inoltro comunicazione di esempio",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\u003cposta-certificata@pec-esempio.it\u003e",
+    "hasInnerEmail": true,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "message/rfc822",
+        "displayName": "postacert.eml (552 byte)",
+        "embedded": true,
+        "filename": "postacert.eml (552 byte).msg",
+        "hidden": false,
+        "sha256": "ea49bbe0199cd37a",
+        "size": 736
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "POSTA CERTIFICATA: Inoltro comunicazione di esempio",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "postacert.eml (552 byte).msg"
+    ]
+  },
+  "format": "eml"
+}

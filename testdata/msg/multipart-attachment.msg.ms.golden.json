@@ -1,0 +1,38 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 48,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eMessaggio certificato.\u003c/body\u003e\u003c/html\u003e",
+    "bodySha256": "549ea67ed5041dc9",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "",
+    "hasInnerEmail": true,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "multipart/mixed; boundary=\"esterno\"",
+        "displayName": "envelope.eml",
+        "embedded": false,
+        "filename": "envelope.eml",
+        "hidden": false,
+        "sha256": "4dac644d74a5ba67",
+        "size": 629
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "POSTA CERTIFICATA: Referto",
+    "to": null,
+    "unsent": false,
+    "visibleAttachments": [
+      "envelope.eml"
+    ]
+  },
+  "format": "msg"
+}

@@ -1,0 +1,26 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 108,
+    "bodyPrefix": "Gentile cliente,\r\nla informiamo che la pratica di esempio n. 000000 è stata aggiornata.\r\nCordiali saluti.\r\n",
+    "bodySha256": "a305ee9c2bf321b6",
+    "cc": null,
+    "conversationTopic": "Comunicazione importante: pratica di esempio n. 000000",
+    "date": "Thu, 26 Feb 2026 18:42:17 +0100",
+    "droppedAttachments": 0,
+    "from": "\"Ufficio Città Esempio\" \u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Comunicazione importante: pratica di esempio n. 000000",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "eml"
+}

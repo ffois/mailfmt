@@ -1,0 +1,40 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 80,
+    "bodyPrefix": "Messaggio di esempio il cui allegato winmail.dat non e' in realta' un file TNEF.",
+    "bodySha256": "062877f82fd937a9",
+    "cc": null,
+    "conversationTopic": "Messaggio di esempio con falso allegato winmail.dat",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "application/octet-stream",
+        "displayName": "winmail.dat",
+        "embedded": false,
+        "filename": "winmail.dat",
+        "hidden": false,
+        "sha256": "77c34f525a6c657a",
+        "size": 59
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "Messaggio di esempio con falso allegato winmail.dat",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "winmail.dat"
+    ]
+  },
+  "format": "eml"
+}

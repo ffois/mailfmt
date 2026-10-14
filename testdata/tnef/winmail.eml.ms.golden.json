@@ -1,0 +1,26 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 65,
+    "bodyPrefix": "Messaggio di esempio con un allegato winmail.dat in formato TNEF.",
+    "bodySha256": "6ea0885b3946ede7",
+    "cc": null,
+    "conversationTopic": "Messaggio di esempio con allegato TNEF",
+    "date": "",
+    "droppedAttachments": 2,
+    "from": "\u003cmittente@example.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Messaggio di esempio con allegato TNEF",
+    "to": [
+      "\u003cdestinatario@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "eml"
+}

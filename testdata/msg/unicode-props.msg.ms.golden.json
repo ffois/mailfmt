@@ -1,0 +1,24 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 52,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eIn allegato il preventivo.\u003c/body\u003e\u003c/html\u003e",
+    "bodySha256": "1ab8b46c33327c79",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Anna Ferri\" \u003canna.ferri@example.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Preventivo n. 4471",
+    "to": null,
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "msg"
+}

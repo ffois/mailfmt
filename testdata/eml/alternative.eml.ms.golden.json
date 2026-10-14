@@ -1,0 +1,52 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 99,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003e\u003cp\u003eCorpo \u003cb\u003eHTML\u003c/b\u003e: questa parte deve vincere sul testo semplice.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e\r\n",
+    "bodySha256": "fa89be5b105cea55",
+    "cc": null,
+    "conversationTopic": "Num. polizza 00000000000 Num. Sinistro 2026.00ESM.000000",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Assicurazioni Esempio SPA\" \u003csinistri@example-assicurazioni.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "image/jpeg",
+        "displayName": "foto-fake-0001.jpg",
+        "embedded": false,
+        "filename": "foto-fake-0001.jpg",
+        "hidden": false,
+        "sha256": "eb6c9ea59708115b",
+        "size": 21
+      },
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "image/jpeg",
+        "displayName": "foto-fake-0002.jpg",
+        "embedded": false,
+        "filename": "foto-fake-0002.jpg",
+        "hidden": false,
+        "sha256": "732edf6668314869",
+        "size": 21
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "I: Num. polizza 00000000000 Num. Sinistro 2026.00ESM.000000",
+    "to": [
+      "\u003cassicurato@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "foto-fake-0001.jpg",
+      "foto-fake-0002.jpg"
+    ]
+  },
+  "format": "eml"
+}

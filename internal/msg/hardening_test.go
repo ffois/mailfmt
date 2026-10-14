@@ -237,6 +237,18 @@ func TestCraftedSiblingPairTerminates(t *testing.T) {
 	readCrafted(t, data)
 }
 
+// A directory entry's name length is a file value too: one beyond the 64-byte
+// name field, or an odd one, must not take the name read out of bounds.
+// Found by FuzzMSRead.
+func TestCraftedNameLengthIsBounded(t *testing.T) {
+	for _, nameLen := range []uint16{0xFFFF, 66, 3} {
+		root := craftedRoot(0)
+		root.NameLen = nameLen
+		data := craftCFB(craftedHeader(), []uint32{cfbFATSector, cfbEndOfChain}, []directoryEntry{root})
+		_ = readCrafted(t, data)
+	}
+}
+
 // [MS-CFB] permits sector shifts of 9 and 12 and nothing else. Rejecting the
 // rest at the header is cheap and closes a class of arithmetic faults at once:
 // a shift under 2 gives a sector smaller than a FAT entry, and readFAT then

@@ -1,0 +1,38 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 40,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eVedi allegato.\u003c/body\u003e\u003c/html\u003e",
+    "bodySha256": "b86b24e9214090c5",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "text/plain",
+        "displayName": "nota.txt",
+        "embedded": false,
+        "filename": "nota.txt",
+        "hidden": false,
+        "sha256": "297429bfcbeb38a0",
+        "size": 20
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "Con allegato",
+    "to": null,
+    "unsent": false,
+    "visibleAttachments": [
+      "nota.txt"
+    ]
+  },
+  "format": "msg"
+}

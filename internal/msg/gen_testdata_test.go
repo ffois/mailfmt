@@ -25,6 +25,7 @@ func TestGenerateMSGTestdata(t *testing.T) {
 		"with-attachment.msg":      fixtureWithAttachment,
 		"large-body.msg":           fixtureLargeBody,
 		"multipart-attachment.msg": fixtureMultipartAttachment,
+		"attached-message.msg":     fixtureAttachedMessage,
 	}
 
 	for name, build := range cases {
@@ -141,5 +142,35 @@ func fixtureLargeBody() []byte {
 	root := &cfbEntry{name: "Root Entry"}
 	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("Corpo lungo"))
 	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte(body))
+	return buildCFB(outlookMSG(root, nil))
+}
+
+// An attached message is a storage inside the attachment's storage, a whole
+// message with its own recipients and attachments: a forwarded mail with the
+// original attached, as Outlook stores it.
+func fixtureAttachedMessage() []byte {
+	root := &cfbEntry{name: "Root Entry"}
+	root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("I: Preventivo n. 4471"))
+	root.addStream(substgName(pidTagSenderName, propTypeString), utf16LE("Ufficio Acquisti"))
+	root.addStream(substgName(pidTagSenderEmailAddress, propTypeString), utf16LE("acquisti@example.it"))
+	root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte("<html><body>Inoltro il preventivo ricevuto.</body></html>"))
+	r := root.addStorage("__recip_version1.0_#00000000")
+	r.addStream(substgName(msPidTagDisplayName, propTypeString), utf16LE("Direzione"))
+	r.addStream(substgName(msPidTagEmailAddress, propTypeString), utf16LE("direzione@example.it"))
+
+	att := root.addStorage("__attach_version1.0_#00000000")
+	att.addStream(substgName(msPidTagDisplayName, propTypeString), utf16LE("Preventivo n. 4471"))
+	inner := att.addStorage("__substg1.0_3701000D")
+	inner.addStream(substgName(pidTagSubject, propTypeString), utf16LE("Preventivo n. 4471"))
+	inner.addStream(substgName(pidTagSenderName, propTypeString), utf16LE("Anna Ferri"))
+	inner.addStream(substgName(pidTagSenderEmailAddress, propTypeString), utf16LE("anna.ferri@example.it"))
+	inner.addStream(substgName(pidTagBody, propTypeString), utf16LE("In allegato il preventivo.\r\nCordiali saluti"))
+	ir := inner.addStorage("__recip_version1.0_#00000000")
+	ir.addStream(substgName(msPidTagDisplayName, propTypeString), utf16LE("Ufficio Acquisti"))
+	ir.addStream(substgName(msPidTagEmailAddress, propTypeString), utf16LE("acquisti@example.it"))
+	ia := inner.addStorage("__attach_version1.0_#00000000")
+	ia.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("preventivo.pdf"))
+	ia.addStream(substgName(pidTagAttachMimeTag, propTypeString), utf16LE("application/pdf"))
+	ia.addStream(substgName(pidTagAttachData, propTypeBinary), []byte("%PDF-1.4 FAKE\n%%EOF"))
 	return buildCFB(outlookMSG(root, nil))
 }

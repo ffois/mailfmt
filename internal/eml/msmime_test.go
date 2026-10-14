@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"strings"
 	"testing"
 
@@ -117,15 +118,18 @@ func TestMSContentIDWithoutHTMLIsVisible(t *testing.T) {
 	}
 }
 
-// A part explicitly disposed as an attachment stays visible even when the HTML
-// body could refer to it.
-func TestMSDispositionAttachmentStaysVisible(t *testing.T) {
-	html := "Content-Type: text/html\r\n\r\n<img src=\"cid:x\">"
+// A part disposed as an attachment is not flagged for the HTML body, so it is
+// shown unless the body refers to it: then Outlook does not show it either
+// (measured on the attachment line of the rendered message).
+func TestMSDispositionAttachmentVisibility(t *testing.T) {
 	img := "Content-Type: image/png\r\nContent-ID: <x>\r\nContent-Disposition: attachment; filename=\"x.png\"\r\n\r\nPNG"
-	d := msParse(t, msMessage("", "multipart/related", html, img))
-
-	if len(d.MSAttachments) != 1 || d.MSAttachments[0].Hidden {
-		t.Errorf("expected a visible attachment, got %+v", d.MSAttachments)
+	referred := msParse(t, msMessage("", "multipart/related", "Content-Type: text/html\r\n\r\n<img src=\"cid:x\">", img))
+	if len(referred.MSAttachments) != 1 || !referred.MSAttachments[0].Hidden {
+		t.Errorf("expected the attachment the body refers to hidden, got %+v", referred.MSAttachments)
+	}
+	notReferred := msParse(t, msMessage("", "multipart/mixed", "Content-Type: text/html\r\n\r\n<p>testo</p>", img))
+	if len(notReferred.MSAttachments) != 1 || notReferred.MSAttachments[0].Hidden {
+		t.Errorf("expected the attachment shown, got %+v", notReferred.MSAttachments)
 	}
 }
 
@@ -418,29 +422,51 @@ func msBinaryProp(tag uint32, value []byte) []byte {
 	return append(p, make([]byte, (4-len(value)%4)%4)...)
 }
 
-// With a correlator, HTML encapsulated in the winmail.dat's RTF is the body,
-// not the MIME text part.
-func TestMSWinmailCorrelatedHTMLBody(t *testing.T) {
-	const key = "00000000C81200A879F4C247AA06319FDB2FAB40"
-	payload := []byte(`{\rtf1\ansi\ansicpg1252\fromhtml1 \deff0{\fonttbl{\f0\fswiss Arial;}}` +
-		`{\*\htmltag64 <p>}Corpo HTML{\*\htmltag72 </p>}}`)
+// msRTFProps is attMsgProps with a correlation key and an uncompressed
+// PR_RTF_COMPRESSED.
+func msRTFProps(key, payload string) []byte {
 	rtfStream := make([]byte, 16, 16+len(payload))
 	binary.LittleEndian.PutUint32(rtfStream[0:], uint32(len(payload)+12))
 	binary.LittleEndian.PutUint32(rtfStream[4:], uint32(len(payload)))
 	binary.LittleEndian.PutUint32(rtfStream[8:], 0x414C454D) // "MELA": not compressed
 	rtfStream = append(rtfStream, payload...)
-
 	props := binary.LittleEndian.AppendUint32(nil, 2)
 	props = append(props, msBinaryProp(0x007F0102, append([]byte(key), 0))...)
-	props = append(props, msBinaryProp(0x10090102, rtfStream)...)
-	blob := msWinmailPart(msWinmail(props, "nota.txt", "x"))
+	return append(props, msBinaryProp(0x10090102, rtfStream)...)
+}
 
-	withKey := msParse(t, msMessage("X-MS-TNEF-Correlator: "+key+"\r\n", "multipart/mixed", msText, blob))
-	if withKey.Body != "<p>Corpo HTML</p>" {
-		t.Errorf("expected the HTML from the RTF, got %q", withKey.Body)
+// The winmail.dat's RTF replaces the MIME body, with a correlator or without
+// one: HTML encapsulated in it is an HTML body, any other RTF an RTF body
+// whose text Outlook derives from the RTF.
+func TestMSWinmailRTFBody(t *testing.T) {
+	const key = "00000000C81200A879F4C247AA06319FDB2FAB40"
+	htmlRTF := msWinmailPart(msWinmail(msRTFProps(key, `{\rtf1\ansi\ansicpg1252\fromhtml1 \deff0{\fonttbl{\f0\fswiss Arial;}}`+
+		`{\*\htmltag64 <p>}Corpo HTML{\*\htmltag72 </p>}}`), "nota.txt", "x"))
+	plainRTF := msWinmailPart(msWinmail(msRTFProps(key, `{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fswiss Arial;}}`+
+		`\pard Testo {\b grassetto} e caff\'e8\par Seconda riga\par}`), "nota.txt", "x"))
+	html := "Content-Type: text/html\r\n\r\n<p>HTML MIME</p>"
+
+	cases := []struct {
+		name, headers, body, winmail string
+		want                         string
+		format                       email.MSBodyFormat
+	}{
+		{"HTML in RTF, correlator", "X-MS-TNEF-Correlator: " + key + "\r\n", msText, htmlRTF, "<p>Corpo HTML</p>", email.MSBodyHTML},
+		{"HTML in RTF, no correlator", "", msText, htmlRTF, "<p>Corpo HTML</p>", email.MSBodyHTML},
+		{"plain RTF over an HTML part", "X-MS-TNEF-Correlator: " + key + "\r\n", html, plainRTF,
+			"Testo grassetto e caffè\r\nSeconda riga\r\n", email.MSBodyRTF},
 	}
-	if without := msParse(t, msMessage("", "multipart/mixed", msText, blob)); without.Body != "corpo del messaggio" {
-		t.Errorf("expected the MIME text without a correlator, got %q", without.Body)
+	for _, tc := range cases {
+		d := msParse(t, msMessage(tc.headers, "multipart/mixed", tc.body, tc.winmail))
+		if d.Body != tc.want || d.BodyFormat != tc.format || d.RTFBody == "" {
+			t.Errorf("%s: expected %q in format %d, got %q in format %d", tc.name, tc.want, tc.format, d.Body, d.BodyFormat)
+		}
+	}
+	if d := msParse(t, msMessage("", "multipart/mixed", html)); d.BodyFormat != email.MSBodyHTML {
+		t.Errorf("an HTML part alone: expected format HTML, got %d", d.BodyFormat)
+	}
+	if d := msParse(t, msMessage("", "multipart/mixed", msText)); d.BodyFormat != email.MSBodyPlain {
+		t.Errorf("a text part alone: expected format plain, got %d", d.BodyFormat)
 	}
 }
 
@@ -491,5 +517,72 @@ func TestMSWinmailDroppedAttachment(t *testing.T) {
 
 	if len(d.MSAttachments) != 0 || d.DroppedAttachments != 1 {
 		t.Errorf("expected the record dropped and counted, got %v and %d", msNames(d.MSAttachments), d.DroppedAttachments)
+	}
+}
+
+// msTLV encodes one DER element (short or two-byte length).
+func msTLV(tag byte, content ...[]byte) []byte {
+	var body []byte
+	for _, c := range content {
+		body = append(body, c...)
+	}
+	switch n := len(body); {
+	case n < 0x80:
+		return append([]byte{tag, byte(n)}, body...)
+	case n < 0x100:
+		return append([]byte{tag, 0x81, byte(n)}, body...)
+	default:
+		return append([]byte{tag, 0x82, byte(n >> 8), byte(n)}, body...)
+	}
+}
+
+var (
+	msOIDData   = []byte{0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01}
+	msOIDSigned = []byte{0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02}
+)
+
+// msOpaqueSigned is a SignedData with no signer encapsulating content, as
+// eContent.
+func msOpaqueSigned(eContent []byte) []byte {
+	sd := msTLV(0x30, []byte{0x02, 0x01, 0x01}, msTLV(0x31), msTLV(0x30, msOIDData, msTLV(0xA0, eContent)), msTLV(0x31))
+	return msTLV(0x30, msOIDSigned, msTLV(0xA0, sd))
+}
+
+// An opaque S/MIME message shows the entity its SignedData encapsulates,
+// under its own header; an encrypted one, or one that is not PKCS #7, cannot
+// be opened.
+func TestMSOpaqueSMIME(t *testing.T) {
+	entity := "Content-Type: multipart/mixed; boundary=\"I\"\r\n\r\n--I\r\nContent-Type: text/plain\r\n\r\nTesto firmato\r\n" +
+		"--I\r\nContent-Type: application/pdf; name=\"documento.pdf\"\r\nContent-Disposition: attachment; filename=\"documento.pdf\"\r\n\r\n%PDF\r\n--I--\r\n"
+	opaque := func(ctype string, p7m []byte) []byte {
+		return []byte("From: a@example.it\r\nSubject: Firmato\r\nMIME-Version: 1.0\r\nContent-Type: " + ctype + "; name=\"smime.p7m\"\r\n" +
+			"Content-Transfer-Encoding: base64\r\n\r\n" + base64.StdEncoding.EncodeToString(p7m) + "\r\n")
+	}
+	primitive := msOpaqueSigned(msTLV(0x04, []byte(entity)))
+	// BER: the content as a constructed OCTET STRING of two chunks.
+	half := len(entity) / 2
+	chunked := msOpaqueSigned(msTLV(0x24, msTLV(0x04, []byte(entity[:half])), msTLV(0x04, []byte(entity[half:]))))
+
+	for name, raw := range map[string][]byte{
+		"pkcs7-mime":           opaque("application/pkcs7-mime; smime-type=signed-data", primitive),
+		"x-pkcs7-mime":         opaque("application/x-pkcs7-mime", primitive),
+		"chunked OCTET STRING": opaque("application/pkcs7-mime; smime-type=signed-data", chunked),
+	} {
+		d, err := MS_Parse(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if d.Subject != "Firmato" || d.Body != "Testo firmato" || strings.Join(msNames(d.MSAttachments), " ") != "documento.pdf" {
+			t.Errorf("%s: expected the signed entity, got body %q, attachments %v", name, d.Body, msNames(d.MSAttachments))
+		}
+	}
+
+	enveloped := msTLV(0x30, []byte{0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x03},
+		msTLV(0xA0, msTLV(0x30, []byte{0x02, 0x01, 0x00}, msTLV(0x31), msTLV(0x30, msOIDData))))
+	if _, err := MS_Parse(opaque("application/pkcs7-mime; smime-type=enveloped-data", enveloped)); !errors.Is(err, errMSEncrypted) {
+		t.Errorf("an encrypted message: expected errMSEncrypted, got %v", err)
+	}
+	if _, err := MS_Parse(opaque("application/pkcs7-mime", []byte("FAKE"))); !errors.Is(err, errMSSignature) {
+		t.Errorf("not PKCS #7: expected errMSSignature, got %v", err)
 	}
 }

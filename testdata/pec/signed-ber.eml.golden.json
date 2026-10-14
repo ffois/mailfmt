@@ -1,0 +1,34 @@
+{
+  "email": {
+    "attachments": [
+      {
+        "contentType": "application/pdf",
+        "filename": "Ricevuta-fake.pdf",
+        "size": 27
+      },
+      {
+        "contentType": "application/xml",
+        "filename": "daticert.xml",
+        "size": 710
+      },
+      {
+        "contentType": "application/pkcs7-signature",
+        "filename": "smime.p7s",
+        "size": 45
+      }
+    ],
+    "bcc": null,
+    "bodyLen": 78,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eConfermiamo l'annullamento della pratica di esempio.\u003c/body\u003e\u003c/html\u003e",
+    "cc": null,
+    "date": "",
+    "from": "\u003cmittente@pec-esempio.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": true,
+    "subject": "Conferma annullamento pratica di esempio",
+    "to": [
+      "\u003cdestinatario@pec-esempio.it\u003e"
+    ]
+  },
+  "format": "eml"
+}

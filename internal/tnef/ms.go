@@ -13,9 +13,11 @@ import (
 // MSRecipient is one row of a winmail.dat recipient table.
 type MSRecipient struct {
 	Name    string
-	Address string
+	Address string // PR_EMAIL_ADDRESS
 	// Type is PR_RECIPIENT_TYPE: 1 To, 2 Cc, 3 Bcc.
 	Type int
+	// SMTPAddress is PR_SMTP_ADDRESS, empty when the row has none.
+	SMTPAddress string
 }
 
 // MSDecoded is what Outlook takes out of a winmail.dat.
@@ -47,6 +49,15 @@ type MSDecoded struct {
 	// PR_ATTACH_METHOD; Outlook then warns "Impossibile aprire uno o più
 	// allegati".
 	Dropped int
+
+	// Props is attMsgProps, every property by full tag, and Attributes the
+	// other message-level attributes by full ID: what MS_ReadMessage reads an
+	// attached message from.
+	Props      map[uint32][]byte
+	Attributes map[uint32][]byte
+
+	// attachFlags is PR_ATTACH_FLAGS of each of Attachments.
+	attachFlags []uint32
 }
 
 // The attribute IDs Outlook's TNEF reader acts on. They are matched whole,
@@ -86,7 +97,7 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 		return nil, fmt.Errorf("tnef: missing signature")
 	}
 
-	d := &MSDecoded{}
+	d := &MSDecoded{Props: map[uint32][]byte{}, Attributes: map[uint32][]byte{}}
 	var atts []*msRawAttachment
 	var cur *msRawAttachment
 
@@ -118,6 +129,7 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 			cur.props = msScanProps(data)
 		case level == 1 && id == msAttMsgProps:
 			props := msScanProps(data)
+			d.Props = props
 			d.CorrelationKey = strings.TrimRight(string(props[0x007F0102]), "\x00")
 			d.RTFCompressed = props[0x10090102]
 			d.MessageClass = msPropString(props, 0x001A)
@@ -130,6 +142,10 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 			}
 		case level == 1 && id == msAttRecipTable:
 			d.Recipients = msScanRecipients(data)
+		case level == 1:
+			if _, seen := d.Attributes[id]; !seen {
+				d.Attributes[id] = data
+			}
 		}
 	}
 
@@ -138,6 +154,11 @@ func msDecode(blob []byte) (*MSDecoded, error) {
 		switch {
 		case ok:
 			d.Attachments = append(d.Attachments, att)
+			var flags uint32
+			if v := raw.props[0x37140003]; len(v) >= 4 {
+				flags = binary.LittleEndian.Uint32(v)
+			}
+			d.attachFlags = append(d.attachFlags, flags)
 		case raw.props[0x37050003] == nil:
 			d.Dropped++
 		}
@@ -309,8 +330,9 @@ func msScanRecipients(data []byte) []MSRecipient {
 		props := map[uint32][]byte{}
 		off = msScanPropList(data, off+4, count, props)
 		rec := MSRecipient{
-			Name:    msPropString(props, 0x3001),
-			Address: msPropString(props, 0x3003),
+			Name:        msPropString(props, 0x3001),
+			Address:     msPropString(props, 0x3003),
+			SMTPAddress: msPropString(props, 0x39FE),
 		}
 		if v := props[0x0C150003]; len(v) >= 4 {
 			rec.Type = int(binary.LittleEndian.Uint32(v))

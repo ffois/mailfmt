@@ -317,7 +317,7 @@ func TestMSDecodeMessageProperties(t *testing.T) {
 	if d.MessageClass != "REPORT.IPM.Note.NDR" {
 		t.Errorf("unexpected message class %q", d.MessageClass)
 	}
-	want := []MSRecipient{{"Anna Ferri", "anna@example.it", 1}, {"Ufficio", "", 2}}
+	want := []MSRecipient{{Name: "Anna Ferri", Address: "anna@example.it", Type: 1}, {Name: "Ufficio", Type: 2}}
 	if len(d.Recipients) != 2 || d.Recipients[0] != want[0] || d.Recipients[1] != want[1] {
 		t.Errorf("expected %+v, got %+v", want, d.Recipients)
 	}

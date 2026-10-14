@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/ffois/mailfmt/internal/email"
 	"github.com/ffois/mailfmt/internal/mimeparse"
@@ -39,10 +38,14 @@ func MS_ReadFile(filePath string) (*email.MSData, error) {
 //     Content-Location hidden from the attachment list but resolved in the
 //     body; read receipts are dropped, delivery reports become details.txt
 //     and attached messages are Embedded;
-//   - winmail.dat is expanded by tnef.MS_Expand: its compressed RTF is kept
-//     in RTFBody, and with a correlator HTML encapsulated in it is the body;
-//     a Report.* message takes its recipients from it, and without a
-//     correlator its attachment tags are stripped from a plain text body;
+//   - winmail.dat is expanded by tnef.MS_Expand: its compressed RTF, kept in
+//     RTFBody, replaces the MIME body: the HTML encapsulated in it, or the
+//     text of any other RTF (BodyFormat MSBodyRTF); a Report.* message takes
+//     its recipients from it, and without a correlator its attachment tags
+//     are stripped from a plain text body;
+//   - an opaque S/MIME message (application/pkcs7-mime) shows, under its own
+//     header, the MIME entity its SignedData encapsulates; an encrypted one,
+//     or one that is not PKCS #7, fails as it fails in Outlook;
 //   - Importance, X-Priority and X-MSMail-Priority become Importance, the
 //     subject a ConversationTopic, and a non-zero X-Unsent marks a draft.
 func MS_Parse(raw []byte) (*email.MSData, error) {
@@ -106,7 +109,12 @@ type msParsed struct {
 	signed bool // the message is multipart/signed
 }
 
-func msParseMessage(raw []byte) (*msParsed, error) {
+func msParseMessage(raw []byte) (*msParsed, error) { return msParseDepth(raw, 0) }
+
+// msMaxOpaqueDepth bounds opaque S/MIME messages nested in one another.
+const msMaxOpaqueDepth = 8
+
+func msParseDepth(raw []byte, depth int) (*msParsed, error) {
 	parsed, err := mimeparse.ParseHeader(bytes.NewReader(raw))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse email: %w", err)
@@ -124,6 +132,10 @@ func msParseMessage(raw []byte) (*msParsed, error) {
 	// charset, as MimeOLE decodes them.
 	data := build(parsed, func(a []email.Attachment) []email.Attachment { return a })
 	msDecodeHeaders(data, tree.header)
+
+	if tree.is("application/pkcs7-mime") || tree.is("application/x-pkcs7-mime") {
+		return msParseOpaque(parsed.Header, tree, data, depth)
+	}
 
 	htmlPart := msFindTextBody(tree, "html")
 	textPart := msFindTextBody(tree, "plain")
@@ -143,27 +155,38 @@ func msParseMessage(raw []byte) (*msParsed, error) {
 	}
 
 	if htmlPart != nil {
-		result.Body = email.MSResolveCIDs(msStripCharsetMeta(msBodyText(htmlPart)), atts)
+		html := msStripCharsetMeta(msBodyText(htmlPart))
+		email.MSHideReferenced(html, atts)
+		result.Body = email.MSResolveCIDs(html, atts)
+		result.BodyFormat = email.MSBodyHTML
 	} else {
 		result.Body = msBodyText(textPart)
+		result.BodyFormat = email.MSBodyPlain
 	}
 
 	if decoded != nil {
 		result.DroppedAttachments = decoded.Dropped
 		if len(decoded.RTFCompressed) > 0 {
 			if out, err := rtf.Decompress(decoded.RTFCompressed); err == nil {
+				// The container's RTF replaces the body of the MIME parts,
+				// which Outlook imports as RTF too, with a correlator or
+				// without one (measured).
 				result.RTFBody = string(out)
-				// With a correlator the container's properties become the
-				// message's: HTML encapsulated in its RTF is the body.
-				if correlator != "" && rtf.IsEncapsulatedHTML(out) {
-					result.Body = email.MSResolveCIDs(rtf.MS_DeEncapsulateHTML(out), atts)
+				if rtf.IsEncapsulatedHTML(out) {
+					html := rtf.MS_DeEncapsulateHTML(out)
+					email.MSHideReferenced(html, atts)
+					result.Body = email.MSResolveCIDs(html, atts)
+					result.BodyFormat = email.MSBodyHTML
+				} else {
+					result.Body = rtf.MS_RTFToText(out)
+					result.BodyFormat = email.MSBodyRTF
 				}
 			}
 		}
 		if tree.is("multipart/report") && len(decoded.Recipients) > 0 {
 			msApplyRecipients(&result.Data, decoded.Recipients)
 		}
-		if correlator == "" && htmlPart == nil {
+		if correlator == "" && result.BodyFormat == email.MSBodyPlain {
 			result.Body = msTNEFTag.ReplaceAllString(result.Body, "")
 		}
 	}
@@ -171,6 +194,107 @@ func msParseMessage(raw []byte) (*msParsed, error) {
 	result.Attachments = email.MSVisible(atts)
 	result.IsPec, result.HasInnerEmail = email.MSPecFlags(atts, tree.is("multipart/signed"))
 	return &msParsed{data: result, tnef: decoded != nil, signed: tree.is("multipart/signed")}, nil
+}
+
+// msParseOpaque reads an opaque S/MIME message (application/pkcs7-mime, or
+// application/x-pkcs7-mime, smime-type or not): under the message's own
+// header, Outlook shows the MIME entity its SignedData encapsulates, body and
+// attachments, and no smime.p7m. It cannot open an encrypted message
+// (EnvelopedData) without the recipient's key, nor one that is not PKCS #7.
+func msParseOpaque(header mail.Header, tree *msPart, data *email.Data, depth int) (*msParsed, error) {
+	if depth >= msMaxOpaqueDepth {
+		return nil, errMSSignature
+	}
+	entity, err := MS_SMIMEContent(tree.data)
+	if err != nil {
+		return nil, err
+	}
+	inner, err := msParseDepth(entity, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	d := inner.data
+	result := &email.MSData{
+		Data:               *data,
+		Importance:         msImportance(header),
+		ConversationTopic:  msConversationTopic(data.Subject),
+		Unsent:             msUnsent(header),
+		MSAttachments:      d.MSAttachments,
+		BodyFormat:         d.BodyFormat,
+		RTFBody:            d.RTFBody,
+		DroppedAttachments: d.DroppedAttachments,
+	}
+	result.Body = d.Body
+	result.Attachments = d.Attachments
+	result.IsPec, result.HasInnerEmail = email.MSPecFlags(d.MSAttachments, true)
+	return &msParsed{data: result, tnef: inner.tnef, signed: true}, nil
+}
+
+// msEnvelopedDataOID is the DER content of OID 1.2.840.113549.1.7.3.
+var msEnvelopedDataOID = []byte{0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x03}
+
+// errMSEncrypted is what Outlook reports for an encrypted message it holds no
+// key for: "Il sistema di sicurezza sottostante non è in grado di trovare il
+// nome ID digitale", as for a signature that is not PKCS #7.
+var errMSEncrypted = errors.New("eml: S/MIME message is encrypted (Outlook cannot open it without the recipient's digital ID)")
+
+// MS_SMIMEContent returns the MIME entity an opaque S/MIME message carries:
+// the content its SignedData encapsulates, the data of an
+// application/pkcs7-mime part or of the smime.p7m of an IPM.Note.SMIME
+// message. It fails as Outlook fails: on an EnvelopedData, which cannot be
+// decrypted here, and on anything else that is not a SignedData with content.
+func MS_SMIMEContent(p7m []byte) ([]byte, error) {
+	_, info, _, err := msBERElement(p7m, 0)
+	if err != nil {
+		return nil, errMSSignature
+	}
+	if tag, oid, _, err := msBERElement(info, 0); err == nil && tag == 0x06 && bytes.Equal(oid, msEnvelopedDataOID) {
+		return nil, errMSEncrypted
+	}
+	if !msIsSignedData(p7m) {
+		return nil, errMSSignature
+	}
+	// ContentInfo { OID, [0] SignedData { version, digestAlgorithms,
+	// encapContentInfo { OID, [0] eContent }, ... } }; the structure is
+	// checked above.
+	_, _, rest, _ := msBERElement(info, 0)
+	_, explicit, _, _ := msBERElement(rest, 0)
+	_, signed, _, _ := msBERElement(explicit, 0)
+	_, _, rest, _ = msBERElement(signed, 0) // version
+	_, _, rest, _ = msBERElement(rest, 0)   // digestAlgorithms
+	_, encap, _, _ := msBERElement(rest, 0)
+	_, _, rest, _ = msBERElement(encap, 0) // eContentType
+	tag, content, _, err := msBERElement(rest, 0)
+	if err != nil || tag != 0xA0 {
+		return nil, errMSSignature // detached: no content to show
+	}
+	return msOctets(content, 0)
+}
+
+// msOctets reads the OCTET STRING at the start of b, primitive or, in BER,
+// constructed from chunks.
+func msOctets(b []byte, depth int) ([]byte, error) {
+	tag, content, _, err := msBERElement(b, depth)
+	if err != nil {
+		return nil, errMSSignature
+	}
+	switch tag {
+	case 0x04:
+		return content, nil
+	case 0x24:
+		var out []byte
+		for len(content) > 0 {
+			chunk, err := msOctets(content, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, chunk...)
+			_, _, next, _ := msBERElement(content, depth+1)
+			content = next
+		}
+		return out, nil
+	}
+	return nil, errMSSignature
 }
 
 // msTNEFTag is the attachment position tag ITnef::OpenTaggedBody reads and
@@ -451,43 +575,8 @@ func msParseImportance(v string) (email.MSImportance, bool) {
 	return 0, false
 }
 
-// msConversationTopic strips a reply/forward prefix from subject the way
-// Outlook derives PR_CONVERSATION_TOPIC: after leading white space, at most
-// three characters ending in a colon, none of them a digit and no letter
-// after a space ("RE:", "Fw :", "AW:"), followed by any spaces. A subject
-// that starts with the colon, or has no such prefix, is kept whole.
-func msConversationTopic(subject string) string {
-	s := strings.TrimLeftFunc(subject, unicode.IsSpace)
-	runes := []rune(s)
-
-	sawLetter, sawSpace := false, false
-	for i, r := range runes {
-		if r == ':' {
-			if i == 0 {
-				return s
-			}
-			return strings.TrimLeft(string(runes[i+1:]), " ")
-		}
-		if i == 3 {
-			return s
-		}
-		switch {
-		case r == ' ':
-			if !sawLetter {
-				return s
-			}
-			sawSpace = true
-		case '0' <= r && r <= '9':
-			return s
-		default:
-			if sawSpace {
-				return s
-			}
-			sawLetter = true
-		}
-	}
-	return s
-}
+// msConversationTopic is email.MSConversationTopic.
+func msConversationTopic(subject string) string { return email.MSConversationTopic(subject) }
 
 // msUnsent reads X-Unsent as an integer, as Outlook does; the last header
 // wins and a value that is not a number leaves the flag clear.

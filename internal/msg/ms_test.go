@@ -243,10 +243,10 @@ func TestMSReadRecipients(t *testing.T) {
 	}
 }
 
-// An attachment flagged ATT_INVISIBLE_IN_HTML is hidden when the body is
-// HTML, one with PR_ATTACHMENT_HIDDEN always. An attached message is a
-// storage and comes back Embedded, named after PR_DISPLAY_NAME alone, with
-// the file name Outlook derives from that.
+// An attachment flagged ATT_MHTML_REF, or with PR_ATTACHMENT_HIDDEN, is
+// hidden whatever the body. An attached message is a storage and comes back
+// Embedded, named after PR_DISPLAY_NAME alone, with the file name Outlook
+// derives from that.
 func TestMSReadAttachmentVisibility(t *testing.T) {
 	build := func(withHTML bool) *email.MSData {
 		root := &cfbEntry{name: "Root Entry"}
@@ -302,8 +302,45 @@ func TestMSReadAttachmentVisibility(t *testing.T) {
 	}
 
 	text := build(false)
-	if text.MSAttachments[0].Hidden {
-		t.Error("ATT_INVISIBLE_IN_HTML must not hide an attachment of a plain text message")
+	if !text.MSAttachments[0].Hidden {
+		t.Error("ATT_MHTML_REF must hide the attachment under a plain text body too")
+	}
+}
+
+// Which attachments an HTML body hides, measured: those it refers to in an
+// attribute, by cid: (scheme in lower case, ID in any case) or by
+// Content-Location; ATT_INVISIBLE_IN_HTML alone hides nothing.
+func TestMSReadHiddenByReference(t *testing.T) {
+	cases := []struct {
+		name, body, cid, location string
+		flags                     uint64
+		hidden                    bool
+	}{
+		{"referred to by cid:", `<img src="cid:x">`, "x", "", 0, true},
+		{"ID in another case", `<img src="cid:X">`, "x", "", 0, true},
+		{"single quotes", `<img src='cid:x'>`, "x", "", 0, true},
+		{"by Content-Location", `<img src="http://esempio/logo.png">`, "", "http://esempio/logo.png", 0, true},
+		{"CID: in upper case", `<img src="CID:x">`, "x", "", 0, false},
+		{"cid: in the text", `<p>vedi cid:x</p>`, "x", "", 0, false},
+		{"not referred to", `<p>testo</p>`, "x", "", 0, false},
+		{"ATT_INVISIBLE_IN_HTML alone", `<p>testo</p>`, "x", "", 1, false},
+		{"ATT_MHTML_REF", `<p>testo</p>`, "x", "", 4, true},
+	}
+	for _, tc := range cases {
+		root := &cfbEntry{name: "Root Entry"}
+		root.addStream(substgName(pidTagBodyHTML, propTypeBinary), []byte(tc.body))
+		att := root.addStorage("__attach_version1.0_#00000000")
+		att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("logo.png"))
+		if tc.cid != "" {
+			att.addStream(substgName(pidTagAttachContentId, propTypeString), utf16LE(tc.cid))
+		}
+		if tc.location != "" {
+			att.addStream(substgName(msPidTagAttachContentLocation, propTypeString), utf16LE(tc.location))
+		}
+		d := msReadFixture(t, outlookMSG(root, msgFixed{att: {msTagAttachFlags: tc.flags}}))
+		if d.MSAttachments[0].Hidden != tc.hidden {
+			t.Errorf("%s: expected hidden=%v", tc.name, tc.hidden)
+		}
 	}
 }
 
@@ -408,18 +445,66 @@ func TestMSReadRTFFontCharset(t *testing.T) {
 	payload := []byte(`{\rtf1\ansi\ansicpg1252\fromhtml1 \deff0{\fonttbl` +
 		`{\f0\fswiss\fcharset0 Arial;}{\f6\fswiss\fcharset178 Arial;}}` +
 		"\r\n" + `{\*\htmltag64 <p>}a{\f6 \'9d}b{\*\htmltag72 </p>}}`)
+	root := &cfbEntry{name: "Root Entry"}
+	root.addStream(substgName(pidTagRtfCompressed, propTypeBinary), uncompressedRTF(string(payload)))
+	root.addStream(substgName(pidTagBody, propTypeString), utf16LE("ab"))
+	data := msReadFixture(t, outlookMSG(root, nil))
+
+	if data.Body != "<p>a‌b</p>" {
+		t.Errorf("expected U+200C from the Arabic font, got %q", data.Body)
+	}
+}
+
+// uncompressedRTF is a PR_RTF_COMPRESSED value holding payload as is.
+func uncompressedRTF(payload string) []byte {
 	stream := make([]byte, 16+len(payload))
 	binary.LittleEndian.PutUint32(stream[0:], uint32(len(payload)+12))
 	binary.LittleEndian.PutUint32(stream[4:], uint32(len(payload)))
 	binary.LittleEndian.PutUint32(stream[8:], rtf.RTFUncompressedMagic)
 	copy(stream[16:], payload)
+	return stream
+}
 
-	root := &cfbEntry{name: "Root Entry"}
-	root.addStream(substgName(pidTagRtfCompressed, propTypeBinary), stream)
-	data := msReadFixture(t, outlookMSG(root, nil))
-
-	if data.Body != "<p>a‌b</p>" {
-		t.Errorf("expected U+200C from the Arabic font, got %q", data.Body)
+// Which body Outlook shows, measured: PR_HTML first; the RTF only when
+// PR_BODY is listed, as HTML when it encapsulates HTML and as RTF otherwise,
+// with the text derived from the RTF; PR_BODY last.
+func TestMSReadBodyPrecedence(t *testing.T) {
+	plainRTF := uncompressedRTF(`{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Arial;}}\pard Testo RTF {\b grassetto} e caff\'e8\par Seconda riga\par}`)
+	htmlRTF := uncompressedRTF(`{\rtf1\ansi\fromhtml1 \deff0{\fonttbl{\f0 Arial;}}{\*\htmltag64 <p>}HTML da RTF{\*\htmltag72 </p>}}`)
+	html := []byte("<p>HTML da PR_HTML</p>")
+	text := utf16LE("Testo da PR_BODY")
+	type stream struct {
+		id   uint32
+		typ  uint16
+		data []byte
+	}
+	cases := []struct {
+		name    string
+		streams []stream
+		body    string
+		format  email.MSBodyFormat
+	}{
+		{"PR_BODY", []stream{{pidTagBody, propTypeString, text}}, "Testo da PR_BODY", email.MSBodyPlain},
+		{"PR_HTML over RTF and PR_BODY", []stream{{pidTagBodyHTML, propTypeBinary, html}, {pidTagRtfCompressed, propTypeBinary, plainRTF}, {pidTagBody, propTypeString, text}},
+			"<p>HTML da PR_HTML</p>", email.MSBodyHTML},
+		{"RTF with PR_BODY", []stream{{pidTagRtfCompressed, propTypeBinary, plainRTF}, {pidTagBody, propTypeString, text}},
+			"Testo RTF grassetto e caffè\r\nSeconda riga\r\n", email.MSBodyRTF},
+		{"RTF with an empty PR_BODY", []stream{{pidTagRtfCompressed, propTypeBinary, plainRTF}, {pidTagBody, propTypeString, nil}},
+			"Testo RTF grassetto e caffè\r\nSeconda riga\r\n", email.MSBodyRTF},
+		{"HTML in RTF with PR_BODY", []stream{{pidTagRtfCompressed, propTypeBinary, htmlRTF}, {pidTagBody, propTypeString, text}},
+			"<p>HTML da RTF</p>", email.MSBodyHTML},
+		{"RTF without PR_BODY", []stream{{pidTagRtfCompressed, propTypeBinary, plainRTF}}, "", email.MSBodyPlain},
+		{"HTML in RTF without PR_BODY", []stream{{pidTagRtfCompressed, propTypeBinary, htmlRTF}}, "", email.MSBodyPlain},
+	}
+	for _, tc := range cases {
+		root := &cfbEntry{name: "Root Entry"}
+		for _, s := range tc.streams {
+			root.addStream(substgName(s.id, s.typ), s.data)
+		}
+		d := msReadFixture(t, outlookMSG(root, nil))
+		if d.Body != tc.body || d.BodyFormat != tc.format {
+			t.Errorf("%s: expected %q in format %d, got %q in format %d", tc.name, tc.body, tc.format, d.Body, d.BodyFormat)
+		}
 	}
 }
 
@@ -509,5 +594,157 @@ func TestMSReadKeepsPlainFields(t *testing.T) {
 func TestMSFiletime(t *testing.T) {
 	if got := msFiletime(116_444_736_000_000_000); !got.Equal(time.Unix(0, 0)) {
 		t.Errorf("expected the Unix epoch, got %v", got)
+	}
+}
+
+// An attached message stored in the .msg opens as Outlook opens it from the
+// attachment list, with the rules measured on Outlook 2010.
+func TestMSAttachedMessage(t *testing.T) {
+	type parts struct{ root, att, inner *cfbEntry }
+	build := func() parts {
+		root := &cfbEntry{name: "Root Entry"}
+		root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("I: Preventivo"))
+		note := root.addStorage("__attach_version1.0_#00000000")
+		note.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("nota.txt"))
+		att := root.addStorage("__attach_version1.0_#00000001")
+		att.addStream(substgName(msPidTagDisplayName, propTypeString), utf16LE("Preventivo"))
+		inner := att.addStorage("__substg1.0_3701000D")
+		inner.addStream(substgName(pidTagSubject, propTypeString), utf16LE("RE: Preventivo"))
+		inner.addStream(substgName(pidTagSenderEmailAddress, propTypeString), utf16LE("anna@example.it"))
+		r := inner.addStorage("__recip_version1.0_#00000000")
+		r.addStream(substgName(msPidTagEmailAddress, propTypeString), utf16LE("bruno@example.it"))
+		ia := inner.addStorage("__attach_version1.0_#00000000")
+		ia.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("allegato.pdf"))
+		return parts{root, att, inner}
+	}
+	open := func(p parts, fixed msgFixed, edit func(p parts)) (*MSMessage, error) {
+		outlookMSG(p.root, fixed)
+		if edit != nil {
+			edit(p)
+		}
+		m, err := MS_Open(bytes.NewReader(buildCFB(p.root)))
+		if err != nil {
+			t.Fatalf("MS_Open: %v", err)
+		}
+		return m.AttachedMessage(1)
+	}
+
+	inner, err := open(build(), nil, nil)
+	if err != nil {
+		t.Fatalf("AttachedMessage: %v", err)
+	}
+	d := inner.Data
+	if d.Subject != "RE: Preventivo" || d.ConversationTopic != "Preventivo" || d.From != "<anna@example.it>" {
+		t.Errorf("unexpected message: subject %q, topic %q, from %q", d.Subject, d.ConversationTopic, d.From)
+	}
+	if strings.Join(d.To, ";") != "<bruno@example.it>" || len(d.Attachments) != 1 || d.Attachments[0].Filename != "allegato.pdf" {
+		t.Errorf("unexpected recipients or attachments: %q %+v", d.To, d.Attachments)
+	}
+
+	m, _ := MS_Open(bytes.NewReader(buildCFB(outlookMSG(build().root, nil))))
+	if _, err := m.AttachedMessage(0); !errors.Is(err, errMSNotStored) {
+		t.Errorf("a file attachment: expected errMSNotStored, got %v", err)
+	}
+
+	setObjectHigh := func(p parts, high byte) {
+		props := findChild(p.att, msPropertiesStream).data
+		for off := msSubObjectHeaderSize; off+msPropertyEntrySize <= len(props); off += msPropertyEntrySize {
+			if binary.LittleEndian.Uint32(props[off:]) == msTagAttachDataObject {
+				props[off+12] = high
+			}
+		}
+	}
+	refused := map[string]func() (*MSMessage, error){
+		"PR_ATTACH_DATA_OBJ high dword 0": func() (*MSMessage, error) { return open(build(), nil, func(p parts) { setObjectHigh(p, 0) }) },
+		"PR_ATTACH_DATA_OBJ high dword 2": func() (*MSMessage, error) { return open(build(), nil, func(p parts) { setObjectHigh(p, 2) }) },
+		"no property stream": func() (*MSMessage, error) {
+			return open(build(), nil, func(p parts) { p.inner.removeChild(msPropertiesStream) })
+		},
+		"no PR_MESSAGE_FLAGS": func() (*MSMessage, error) {
+			p := build()
+			return open(p, nil, func(p parts) {
+				replaceStream(p.inner, msPropertiesStream, propertyStream(p.inner, msEmbeddedHeaderSize, 1, 1,
+					map[uint32]uint64{msTagStoreSupportMask: msStoreUnicodeOK}))
+			})
+		},
+		"Unicode strings without STORE_UNICODE_OK": func() (*MSMessage, error) {
+			p := build()
+			return open(p, msgFixed{p.inner: {msTagStoreSupportMask: 0}}, nil)
+		},
+		"a recipient of the wrong kind": func() (*MSMessage, error) {
+			p := build()
+			p.root.addStream(substgName(pidTagMessageClass, propTypeString), utf16LE("IPM.Note"))
+			p.inner.addStream(substgName(pidTagMessageClass, propTypeString), utf16LE("IPM.Note"))
+			p.inner.addStorage("__recip_version1.0_#00000001").addStream(substgName(msPidTagEmailAddress, propTypeString8), []byte("x@example.it"))
+			unicodeOK := map[uint32]uint64{msTagStoreSupportMask: msStoreUnicodeOK}
+			return open(p, msgFixed{p.root: unicodeOK, p.inner: {msTagStoreSupportMask: msStoreUnicodeOK}}, nil)
+		},
+	}
+	for name, try := range refused {
+		if _, err := try(); !errors.Is(err, errMSAttachedMessage) {
+			t.Errorf("%s: expected errMSAttachedMessage, got %v", name, err)
+		}
+	}
+}
+
+// An ANSI message's strings are in the ANSI code page of Windows (1252 here),
+// whatever PR_MESSAGE_CODEPAGE says and even when they are valid UTF-8; only
+// PR_BODY follows PR_INTERNET_CPID.
+func TestMSReadANSICodePage(t *testing.T) {
+	cyr := []byte("\xcf\xf0\xe8\xe2\xe5\xf2") // "Привет" in Windows-1251
+	root := &cfbEntry{name: "Root Entry"}
+	root.addStream(substgName(pidTagSubject, propTypeString8), cyr)
+	root.addStream(substgName(pidTagBody, propTypeString8), cyr)
+	root.addStream(substgName(pidTagSenderName, propTypeString8), []byte("\xd0\x9f")) // UTF-8 "П"
+	d := msReadFixture(t, outlookMSG(root, msgFixed{root: {0x3FFD0003: 1251, msTagInternetCPID: 1251}}))
+
+	if d.Subject != "Ïðèâåò" || d.From != "ÐŸ" {
+		t.Errorf("expected Windows-1252 strings, got subject %q, from %q", d.Subject, d.From)
+	}
+	if d.Body != "Привет" {
+		t.Errorf("expected the body in PR_INTERNET_CPID, got %q", d.Body)
+	}
+}
+
+// An IPM.Note.SMIME message shows the MIME entity its smime.p7m encapsulates;
+// an encrypted one cannot be opened.
+func TestMSReadOpaqueSMIME(t *testing.T) {
+	tlv := func(tag byte, content ...[]byte) []byte {
+		var body []byte
+		for _, c := range content {
+			body = append(body, c...)
+		}
+		if len(body) < 0x80 {
+			return append([]byte{tag, byte(len(body))}, body...)
+		}
+		return append([]byte{tag, 0x81, byte(len(body))}, body...)
+	}
+	oid := func(last byte) []byte {
+		return []byte{0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, last}
+	}
+	entity := "Content-Type: multipart/mixed; boundary=\"I\"\r\n\r\n--I\r\nContent-Type: text/plain\r\n\r\nTesto firmato\r\n" +
+		"--I\r\nContent-Type: application/pdf; name=\"a.pdf\"\r\n\r\n%PDF\r\n--I--\r\n"
+	signed := tlv(0x30, oid(2), tlv(0xA0, tlv(0x30, []byte{0x02, 0x01, 0x01}, tlv(0x31), tlv(0x30, oid(1), tlv(0xA0, tlv(0x04, []byte(entity)))), tlv(0x31))))
+	enveloped := tlv(0x30, oid(3), tlv(0xA0, tlv(0x30, []byte{0x02, 0x01, 0x00}, tlv(0x31), tlv(0x30, oid(1)))))
+
+	build := func(p7m []byte) []byte {
+		root := &cfbEntry{name: "Root Entry"}
+		root.addStream(substgName(pidTagMessageClass, propTypeString), utf16LE("IPM.Note.SMIME"))
+		root.addStream(substgName(pidTagSubject, propTypeString), utf16LE("Firmato"))
+		root.addStream(substgName(pidTagBody, propTypeString), utf16LE("testo della busta"))
+		att := root.addStorage("__attach_version1.0_#00000000")
+		att.addStream(substgName(pidTagAttachLongFilename, propTypeString), utf16LE("smime.p7m"))
+		att.addStream(substgName(pidTagAttachData, propTypeBinary), p7m)
+		return buildCFB(outlookMSG(root, nil))
+	}
+	d, err := MS_Read(bytes.NewReader(build(signed)))
+	if err != nil {
+		t.Fatalf("MS_Read: %v", err)
+	}
+	if d.Subject != "Firmato" || d.Body != "Testo firmato" || len(d.Attachments) != 1 || d.Attachments[0].Filename != "a.pdf" {
+		t.Errorf("expected the signed entity, got body %q, attachments %+v", d.Body, d.Attachments)
+	}
+	if _, err := MS_Read(bytes.NewReader(build(enveloped))); err == nil {
+		t.Error("expected an error for an encrypted message")
 	}
 }

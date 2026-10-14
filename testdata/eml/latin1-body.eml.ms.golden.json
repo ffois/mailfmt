@@ -1,0 +1,26 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 336,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003e\u003cp\u003eGentile Sig. Rossi,\u003cbr\u003e\r\nLa contattiamo in merito alla pratica n. 00000000000.\u003cbr\u003e\r\nLe chiediamo di verif",
+    "bodySha256": "99fa98fe93833504",
+    "cc": null,
+    "conversationTopic": "Pratica n. 00000000000",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Assicurazioni Esempio SPA\" \u003csinistri@example-assicurazioni.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Pratica n. 00000000000",
+    "to": [
+      "\u003cassicurato@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "eml"
+}

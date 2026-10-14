@@ -1,0 +1,109 @@
+From: posta-certificata@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: POSTA CERTIFICATA: annullamento spedizione di esempio
+MIME-Version: 1.0
+Content-Type: multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256; boundary="----=_Part_signed_top_0001"
+
+------=_Part_signed_top_0001
+Content-Type: multipart/mixed; boundary="----=_Part_signed_mixed_0001"
+
+------=_Part_signed_mixed_0001
+Content-Type: text/plain; charset="utf-8"
+
+Messaggio di posta certificata: annullamento spedizione.
+------=_Part_signed_mixed_0001
+Content-Type: message/rfc822; name=postacert.eml
+Content-Disposition: attachment; filename="postacert.eml"
+
+From: mittente@pec-esempio.it
+To: destinatario@pec-esempio.it
+Subject: Conferma annullamento pratica di esempio
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_signed_inner_mixed_0001"
+
+------=_signed_inner_mixed_0001
+Content-Type: multipart/alternative; boundary="----=_signed_inner_alt_0001"
+
+------=_signed_inner_alt_0001
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+Q29uZmVybWlhbW8gbCdhbm51bGxhbWVudG8gZGVsbGEgcHJhdGljYSBkaSBlc2VtcGlvLg==
+------=_signed_inner_alt_0001
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+Q29uZmVybWlhbW8gbCdhbm51bGxhbWVudG8gZGVsbGEgcHJhdGljYSBkaSBl
+c2VtcGlvLjwvYm9keT48L2h0bWw+
+------=_signed_inner_alt_0001--
+------=_signed_inner_mixed_0001
+Content-Type: application/pdf; name="Ricevuta-fake.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Ricevuta-fake.pdf"
+
+JVBERi0xLjQgRkFLRSBSRUNFSVBUCiUlRU9G
+------=_signed_inner_mixed_0001
+Content-Type: application/xml; charset=UTF-8; name=daticert.xml
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: attachment; filename="daticert.xml"
+
+<?xml version=3D"1.0" encoding=3D"UTF-8"?>
+<postacert>
+  <intestazione>
+    <mittente>mittente@pec-esempio.it</mittente>
+    <destinatari tipo=3D"certificato">destinatario@pec-esempio.it</destinatari>
+    <risposte>mittente@pec-esempio.it</risposte>
+    <oggetto>Pratica di esempio</oggetto>
+  </intestazione>
+  <dati>
+    <gestore-emittente>Gestore PEC di Esempio</gestore-emittente>
+    <data zona=3D"+0100">
+      <giorno>27/07/2026</giorno>
+      <ora>10:00:00</ora>
+    </data>
+    <identificativo>opec0000.20260727100000.00000.000.0.00@pec-esempio.it</identificativo>
+    <msgid>&lt;0000000000.00000.0000000000@pec-esempio.it&gt;</msgid>
+    <tipo>certificazione</tipo>
+  </dati>
+</postacert>
+
+------=_signed_inner_mixed_0001
+Content-Type: application/pkcs7-signature; name="smime.p7s"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="smime.p7s"
+
+MIAGCSqGSIb3DQEHAqCAMIACAQExADCABgkqhkiG9w0BBwEAADEAAAAAAAAA
+------=_signed_inner_mixed_0001--
+------=_Part_signed_mixed_0001
+Content-Type: application/xml; charset=UTF-8; name=daticert.xml
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: attachment; filename="daticert.xml"
+
+<?xml version=3D"1.0" encoding=3D"UTF-8"?>
+<postacert>
+  <intestazione>
+    <mittente>mittente@pec-esempio.it</mittente>
+    <destinatari tipo=3D"certificato">destinatario@pec-esempio.it</destinatari>
+    <risposte>mittente@pec-esempio.it</risposte>
+    <oggetto>Pratica di esempio</oggetto>
+  </intestazione>
+  <dati>
+    <gestore-emittente>Gestore PEC di Esempio</gestore-emittente>
+    <data zona=3D"+0100">
+      <giorno>27/07/2026</giorno>
+      <ora>10:00:00</ora>
+    </data>
+    <identificativo>opec0000.20260727100000.00000.000.0.00@pec-esempio.it</identificativo>
+    <msgid>&lt;0000000000.00000.0000000000@pec-esempio.it&gt;</msgid>
+    <tipo>certificazione</tipo>
+  </dati>
+</postacert>
+
+------=_Part_signed_mixed_0001--
+------=_Part_signed_top_0001
+Content-Type: application/pkcs7-signature; name="smime.p7s"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="smime.p7s"
+
+MIAGCSqGSIb3DQEHAqCAMIACAQExADCABgkqhkiG9w0BBwEAADEAAAAAAAAA
+------=_Part_signed_top_0001--

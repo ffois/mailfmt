@@ -482,13 +482,19 @@ func (cfb *cfbReader) readNodeStream(node *dirNode) ([]byte, error) {
 	return cfb.readStream(&node.Entry)
 }
 
+// getDirName decodes an entry's name. NameLen comes from the file: a value
+// beyond the 64-byte field is cut to it rather than trusted.
 func getDirName(entry *directoryEntry) string {
-	if entry.NameLen <= 2 {
+	n := int(entry.NameLen)
+	if n > len(entry.Name) {
+		n = len(entry.Name)
+	}
+	if n <= 2 {
 		return ""
 	}
-	nameBytes := entry.Name[:entry.NameLen-2]
+	nameBytes := entry.Name[:n-2]
 	runes := make([]rune, 0, len(nameBytes)/2)
-	for i := 0; i < len(nameBytes); i += 2 {
+	for i := 0; i+1 < len(nameBytes); i += 2 {
 		r := rune(binary.LittleEndian.Uint16(nameBytes[i:]))
 		if r != 0 {
 			runes = append(runes, r)

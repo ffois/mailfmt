@@ -1,0 +1,38 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 121,
+    "bodyPrefix": "\u003cdiv dir=\"auto\"\u003e\u003cdiv\u003e\u003cimg src=\"data:image/jpeg;base64,RkFLRUlOTElORUlNQUdFQllURVM=\" style=\"max-width:100%\"\u003e\u003c/div\u003e\u003c/div\u003e\r",
+    "bodySha256": "6cc035c2d61cba6c",
+    "cc": null,
+    "conversationTopic": "Richiesta visita specialistica di esempio",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Reparto Esempio\" \u003creparto@example-ospedale.it\u003e",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "ii_00000000000000000001",
+        "contentLocation": "",
+        "contentType": "image/jpeg",
+        "displayName": "richiesta-fake.jpeg",
+        "embedded": false,
+        "filename": "richiesta-fake.jpeg",
+        "hidden": true,
+        "sha256": "82cf65152726e56e",
+        "size": 20
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "Richiesta visita specialistica di esempio",
+    "to": [
+      "\u003cpaziente@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "eml"
+}

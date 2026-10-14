@@ -1,0 +1,24 @@
+{
+  "email": {
+    "bcc": null,
+    "bodyFormat": 1,
+    "bodyLen": 29,
+    "bodyPrefix": "Testo semplice\r\ncon due righe",
+    "bodySha256": "3b0764785bc601d2",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "",
+    "hasInnerEmail": false,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [],
+    "rtfBodyLen": 0,
+    "subject": "Perché no",
+    "to": null,
+    "unsent": false,
+    "visibleAttachments": null
+  },
+  "format": "msg"
+}

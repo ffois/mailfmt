@@ -1,0 +1,16 @@
+{
+  "email": {
+    "attachments": [],
+    "bcc": null,
+    "bodyLen": 57,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eInoltro il preventivo ricevuto.\u003c/body\u003e\u003c/html\u003e",
+    "cc": null,
+    "date": "",
+    "from": "Ufficio Acquisti \u003cacquisti@example.it\u003e",
+    "hasInnerEmail": false,
+    "isPec": false,
+    "subject": "I: Preventivo n. 4471",
+    "to": null
+  },
+  "format": "msg"
+}

@@ -1,0 +1,84 @@
+{
+  "attachedMessages": [
+    {
+      "attachment": [
+        0
+      ],
+      "email": {
+        "bcc": null,
+        "bodyFormat": 1,
+        "bodyLen": 43,
+        "bodyPrefix": "In allegato il preventivo.\r\nCordiali saluti",
+        "bodySha256": "32b1f29f66d96a5f",
+        "cc": null,
+        "conversationTopic": "Preventivo n. 4471",
+        "date": "",
+        "droppedAttachments": 0,
+        "from": "\"Anna Ferri\" \u003canna.ferri@example.it\u003e",
+        "hasInnerEmail": false,
+        "importance": 1,
+        "isPec": false,
+        "msAttachments": [
+          {
+            "contentId": "",
+            "contentLocation": "",
+            "contentType": "application/pdf",
+            "displayName": "preventivo.pdf",
+            "embedded": false,
+            "filename": "preventivo.pdf",
+            "hidden": false,
+            "sha256": "e52a758cd2cb778f",
+            "size": 19
+          }
+        ],
+        "rtfBodyLen": 0,
+        "subject": "Preventivo n. 4471",
+        "to": [
+          "\"Ufficio Acquisti\" \u003cacquisti@example.it\u003e"
+        ],
+        "unsent": false,
+        "visibleAttachments": [
+          "preventivo.pdf"
+        ]
+      }
+    }
+  ],
+  "email": {
+    "bcc": null,
+    "bodyFormat": 2,
+    "bodyLen": 57,
+    "bodyPrefix": "\u003chtml\u003e\u003cbody\u003eInoltro il preventivo ricevuto.\u003c/body\u003e\u003c/html\u003e",
+    "bodySha256": "cd851d5bf40daf5d",
+    "cc": null,
+    "conversationTopic": "",
+    "date": "",
+    "droppedAttachments": 0,
+    "from": "\"Ufficio Acquisti\" \u003cacquisti@example.it\u003e",
+    "hasInnerEmail": true,
+    "importance": 1,
+    "isPec": false,
+    "msAttachments": [
+      {
+        "contentId": "",
+        "contentLocation": "",
+        "contentType": "",
+        "displayName": "Preventivo n. 4471",
+        "embedded": true,
+        "filename": "Preventivo n. 4471.msg",
+        "hidden": false,
+        "sha256": "e3b0c44298fc1c14",
+        "size": 0
+      }
+    ],
+    "rtfBodyLen": 0,
+    "subject": "I: Preventivo n. 4471",
+    "to": [
+      "\"Direzione\" \u003cdirezione@example.it\u003e"
+    ],
+    "unsent": false,
+    "visibleAttachments": [
+      "Preventivo n. 4471.msg"
+    ]
+  },
+  "format": "msg"
+}
